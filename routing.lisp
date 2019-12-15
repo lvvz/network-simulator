@@ -1,6 +1,11 @@
 (uiop:define-package :network-simulator/routing
     (:nicknames :ns-routing)
   (:use :common-lisp)
-  (:export ))
+  (:use :network-simulator/network)
+  (:export #:run-routing))
 
 (in-package :ns-routing)
+
+
+(defun run-routing ()
+  ())
