@@ -1,10 +1,10 @@
 (uiop:define-package :network-simulator/init
     (:nicknames :ns-init)
   (:use :common-lisp :alexandria)
-  (:use :ns-utils
-        :ns-log
-	:ns-net
-	:ns-gen)
+  (:use :network-simulator/utils
+        :network-simulator/log
+	:network-simulator/network
+	:network-simulator/generators/all)
   (:export #:init-network))
 
 (in-package :ns-init)

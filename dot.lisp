@@ -1,7 +1,8 @@
 (uiop:define-package :network-simulator/dot
     (:nicknames :ns-dot)
   (:use :common-lisp)
-  (:use :ns-net :ns-node)
+  (:use :network-simulator/network
+        :network-simulator/utils)
   (:export #:network-dot))
 
 (in-package :ns-node)
