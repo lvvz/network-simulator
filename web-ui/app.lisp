@@ -1,6 +1,7 @@
 (uiop:define-package :network-simulator/web-ui/app
     (:nicknames :ns-ui)
   (:use :common-lisp :hunchentoot)
+  (:use :network-simulator/web-ui/net)
   (:export ))
 
 (in-package :ns-ui)
@@ -69,8 +70,11 @@
 
 (defvar *app* nil)
 
-(defparameter *routes* '(("/"    :GET hello)
-                         ("/say" :GET say-number)))
+(defparameter *routes* '(("/"    :get hello)
+                         ("/say" :get say-number)
+			 ("/net" :get initialize-network)
+			 ("/nodes" :get get-nodes)
+			 ("/edges" :get get-edges)))
 
 (defun start-server ()
   ;; Some optional configuration.
@@ -87,7 +91,7 @@
                        :address "127.0.0.1"
                        :port 3945
                        :taskmaster (make-instance 'tbnl:one-thread-per-connection-taskmaster)))
-
+  
   ;; Install the routes onto *APP*.
   (dolist (route *routes*)
     (destructuring-bind (uri method handler) route
