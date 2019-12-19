@@ -59,13 +59,15 @@
     route-table))
 
 (defun restore-path (to last-idx routes-table)
-  (when (> last-idx 0)
-    (let ((prev-node-id (aref (gethash to routes-table)
-			      last-idx)))
-      (cons prev-node-id
-	    (restore-path prev-node-id
-			  (1- last-idx)
-			  routes-table)))))
+  ;; (unless to (break "~A" to routes-table))
+  (when to
+    (when (> last-idx 0)
+      (let ((prev-node-id (aref (gethash to routes-table)
+				last-idx)))
+	(cons prev-node-id
+	      (restore-path prev-node-id
+			    (1- last-idx)
+			    routes-table))))))
 
 (defun find-index-if (fn list)
   (let ((idx -1))
