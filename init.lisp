@@ -13,7 +13,9 @@
 (in-package :ns-init)
 
 
-(defun init-network ()
+(defun init-network (satellite-channels-count
+		     communication-nodes-count
+		     density)
   (setf ns-log:*NETWORK-LOG* *standard-output*)
   (princ "Network build starts" *network-log*)
   (setf *channels* (make-node-map))
@@ -21,9 +23,11 @@
     (setf *network*
 	  (build-network
 	   (make-network-builder
-	    :satellite-channels-count 2
-	    :communication-nodes-count 36
-	    :density-generator (make-random-generator-from-range 2 4)
+	    :satellite-channels-count satellite-channels-count
+	    :communication-nodes-count communication-nodes-count
+	    :density-generator (make-random-generator-from-range
+				(1- density)
+				(1+ density))
 	    :common-channel-builder (make-channel-builder
 				     :error-probability 0.01
 				     :duplex-p (make-random-boolean-generator)
@@ -45,4 +49,5 @@
     (let ((*routes-table* (make-node-map)))
       (propagate-route-table)
       (network-dot)
-      (break "~A" *routes-table*))))
+      ;; (break "~A" *routes-table*)
+      )))

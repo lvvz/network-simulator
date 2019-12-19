@@ -2,7 +2,7 @@
     (:nicknames :ns-ui)
   (:use :common-lisp :hunchentoot)
   (:use :network-simulator/web-ui/net)
-  (:export ))
+  (:export #:start-server))
 
 (in-package :ns-ui)
 
@@ -70,11 +70,12 @@
 
 (defvar *app* nil)
 
-(defparameter *routes* '(("/"    :get hello)
+(defparameter *routes* '(("/"    :get initialize-network)
                          ("/say" :get say-number)
 			 ("/net" :get initialize-network)
 			 ("/nodes" :get get-nodes)
-			 ("/edges" :get get-edges)))
+			 ("/edges" :get get-edges)
+			 ("/gen-net" :post generate-network)))
 
 (defun start-server ()
   ;; Some optional configuration.

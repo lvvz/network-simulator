@@ -1,22 +1,47 @@
+function drawNetwork (nodesJSON, edgesJSON) {
+    var nodes = new vis.DataSet(nodesJSON);
+    let edges = new vis.DataSet(edgesJSON);
+    
+    // create a network
+    let container = document.getElementById('mynetwork');
+    let data = {
+	nodes: nodes,
+	edges: edges
+    };
+    let options = {
+	autoResize: true,
+	height: '100%',
+	width: '100%'
+    };
+    let network = new vis.Network(container, data, options);
+}
+
 // create an array with nodes
-$.getJSON ("/nodes", function (data) {
-    var nodes = new vis.DataSet(data);
-    // create an array with edges
-    $.getJSON ("/edges", function (data) {
-	var edges = new vis.DataSet(data);
+function getNetwork () {
+    $.getJSON ("/nodes", function (nodesJSON) {
+	// create an array with edges
+	$.getJSON ("/edges", function (edgesJSON) {
+	    drawNetwork(nodesJSON, edgesJSON);
+	});
+    });
+}
+
+$("document").ready(() => {;
+    $("#form0").submit(function(event){
+	event.preventDefault();
+	var post_url = $(this).attr("action");
+	var form_data = $(this).serialize();
+	console.log(form_data);
 	
-	// create a network
-	var container = document.getElementById('mynetwork');
-	var data = {
-	    nodes: nodes,
-	    edges: edges
-	};
-	var options = {
-	    autoResize: true,
-	    height: '100%',
-	    width: '100%'
-	};
-	var network = new vis.Network(container, data, options);
-	//$("#mynetwork > canvas").css("height", "1000px");
+	$.post( post_url, form_data, function( response ) {
+	    let result = $.parseJSON(response);
+	    console.log (result);
+	    drawNetwork (result.nodes, result.edges);
+	});
     });
 });
+/*
+$( "form" ).on( "submit", function( event ) {
+  event.preventDefault();
+  console.log( $( this ).serialize() );
+});*/
