@@ -1,11 +1,12 @@
 (uiop:define-package :network-simulator/dot
     (:nicknames :ns-dot)
-  (:use :common-lisp)
+  (:use :common-lisp :alexandria)
   (:use :network-simulator/network
-        :network-simulator/utils)
+        :network-simulator/utils
+	:network-simulator/node)
   (:export #:network-dot))
 
-(in-package :ns-node)
+(in-package :ns-dot)
 
 
 (defun channels-dot ()

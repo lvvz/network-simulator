@@ -13,12 +13,50 @@
 
 	   #:get-node
 	   #:remove-node
-	   #:remove-channel))
+	   #:remove-channel
+
+	   #:*channels*
+	   #:*channels-id-generator*
+
+	   #:build-channel
+	   #:make-channel-builder
+
+	   #:channel-from
+	   #:channel-to
+	   #:channel-weight
+	   #:channel-duplex-p))
 
 (in-package :ns-net)
 
 
 (defvar *network*)
+
+(defvar *channels*)
+
+(defvar *channels-id-generator*)
+
+(defstruct channel-builder
+  error-probability
+  duplex-p
+  weight-generator)
+
+(defstruct channel
+  from to
+  error-probability
+  duplex-p
+  weight)
+
+(defun build-channel (channel-builder from to)
+  (let ((channel
+	  (make-channel
+	   :from from
+	   :to to
+	   :error-probability (channel-builder-error-probability channel-builder)
+	   :duplex-p (funcall (channel-builder-duplex-p channel-builder))
+	   :weight (funcall (channel-builder-weight-generator channel-builder)))))
+    (setf (gethash (funcall *channels-id-generator*)
+		   *channels*)
+	  channel)))
 
 (defstruct network
   satellite-node-id

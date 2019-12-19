@@ -27,7 +27,7 @@
 (defun create-channel (id to-node-id channel-builder availiable-nodes)
   (when (and (node-availiable-p id)
 	     (node-availiable-p to-node-id))
-    (let ((channel (build-channel channel-builder)))
+    (let ((channel (build-channel channel-builder id to-node-id)))
       (create-connection channel id to-node-id availiable-nodes)
       (create-connection channel to-node-id id availiable-nodes)
       to-node-id)))
