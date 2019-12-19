@@ -11,4 +11,5 @@
 	       :network-simulator/routing
 	       :network-simulator/packet
 	       :network-simulator/web-ui/all
-	       :network-simulator/dot))
+	       :network-simulator/dot
+	       :network-simulator/init))
