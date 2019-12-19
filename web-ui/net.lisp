@@ -87,24 +87,8 @@
 		  ,@(mapcar (curry #'apply #'create-from-element)
 			    +network-generate-form+)
 		  ,(create-submit-button
-		    "Згенерувати"
-		    ;; (format nil "
-;; console.log($(~S).serialize());
-;; /*
-;; $.ajax({
-;;         url: ~S,
-;;         type: ~S,
-;;         data: $(~S).serialize(),
-;;         success: function(response) {
-;;         	result = $.parseJSON(response);
-;;         	drawNetwork (result.nodes, result.edges);
-;;     	}
-;; });*/
-;; " id url "POST" id)
-		    ))
-	   ;; (:script :type "text/javascript" ,(format nil "
-;; " id))
-	   )))
+		    "Згенерувати"))
+	   (:script :type "text/javascript" ,(format nil "customSubmit(~S, drawNetworkFromJSON);" id-expr)))))
 
 (defun create-net-paths-form ()
   `())
@@ -143,6 +127,7 @@
      (:title "Мережа передачі даних")
      (:link :rel "stylesheet" :href "https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css")
      (:script :type "text/javascript" :src "https://unpkg.com/vis-network/standalone/umd/vis-network.min.js")
+     (:script :type "text/javascript" (str ,index-script))
      (loop :for script :in '("https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"
 			     "https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.16.0/umd/popper.min.js"
 			     "https://maxcdn.bootstrapcdn.com/bootstrap/4.4.1/js/bootstrap.min.js")
@@ -155,8 +140,7 @@
 		 (:div :class "col-sm-8"
 		       (:div :id "mynetwork"))
 		 (:div :class "col-sm-4"
-		       ,(create-side-menu))))
-     (:script :type "text/javascript" (str ,index-script)))))
+		       ,(create-side-menu)))))))
 
 (defun initialize-network (request)
   (declare (ignore request))

@@ -16,6 +16,10 @@ function drawNetwork (nodesJSON, edgesJSON) {
     let network = new vis.Network(container, data, options);
 }
 
+function drawNetworkFromJSON (result) {
+    drawNetwork (result.nodes, result.edges);
+}
+
 // create an array with nodes
 function getNetwork () {
     $.getJSON ("/nodes", function (nodesJSON) {
@@ -26,20 +30,22 @@ function getNetwork () {
     });
 }
 
-$("document").ready(() => {;
-    $("#form0").submit(function(event){
-	event.preventDefault();
-	var post_url = $(this).attr("action");
-	var form_data = $(this).serialize();
-	console.log(form_data);
-	
-	$.post( post_url, form_data, function( response ) {
-	    let result = $.parseJSON(response);
-	    console.log (result);
-	    drawNetwork (result.nodes, result.edges);
+function customSubmit (id_expr, jsonHandler) {
+    $("document").ready(() => {
+	$(id_expr).submit(function(event){
+	    event.preventDefault();
+	    var post_url = $(this).attr("action");
+	    var form_data = $(this).serialize();
+	    console.log(form_data);
+	    
+	    $.post( post_url, form_data, function( response ) {
+		let result = $.parseJSON(response);
+		console.log (result);
+		jsonHandler (result);
+	    });
 	});
     });
-});
+}
 /*
 $( "form" ).on( "submit", function( event ) {
   event.preventDefault();
