@@ -36,6 +36,10 @@
   (let* ((availiable-node-ids (remove id
 				      (remove-if (rcurry #'gethash (node-channels (get-node id)))
 						 (hash-table-keys availiable-nodes))))
+	 (availiable-node-ids (or (remove-if-not (lambda (id)
+						   (= 0 (hash-table-count (node-channels (get-node id)))))
+						 availiable-node-ids)
+				  availiable-node-ids))
 	 (availiable-nodes-count (length availiable-node-ids)))
     (unless (= 0 availiable-nodes-count)
       (let ((to-node-id (nth (random availiable-nodes-count)
