@@ -43,20 +43,23 @@
 	((>= i (hash-table-count (network-nodes *network*))))
       (maphash (lambda (id channel)
 		 (declare (ignore id))
-		 (let ((maybe-new-weight (weight+ (aref (gethash (channel-from channel)
-								 weight-table)
-							(1- i))
-						  (channel-weight channel))))
-		   (unless (eq :inf maybe-new-weight)
-		     (when (weight> (aref (gethash (channel-to channel) weight-table) i)
-				    maybe-new-weight)
-		       (setf (aref (gethash (channel-to channel) weight-table) i)
-			     maybe-new-weight)
-		       (setf (aref (gethash (channel-to channel) route-table) i)
-			     (channel-from channel))))))
+		 (labels ((%update-weights (from to)
+			    (let ((maybe-new-weight (weight+ (aref (gethash from
+									    weight-table)
+								   (1- i))
+							     (channel-weight channel))))
+			      (unless (eq :inf maybe-new-weight)
+				(when (weight> (aref (gethash to weight-table) i)
+					       maybe-new-weight)
+				  (setf (aref (gethash to weight-table) i)
+					maybe-new-weight)
+				  (setf (aref (gethash to route-table) i)
+					from))))))
+		   (%update-weights (channel-from channel) (channel-to channel))
+		   (%update-weights (channel-to channel) (channel-from channel))))
 	       *channels*))
     ;; (break "~A" weight-table)
-    route-table))
+    (values weight-table route-table)))
 
 (defun restore-path (to last-idx routes-table)
   ;; (unless to (break "~A" to routes-table))
@@ -77,31 +80,32 @@
     idx))
 
 (defun evaluate-shortest-paths (to routes-table)
-  (cons to
-	(restore-path to
-		      (find-index-if #'identity
-				     (coerce (gethash to routes-table) 'list))
-		      routes-table)))
+  (list (cons to
+	      (restore-path to
+			    (find-index-if #'identity
+					   (coerce (gethash to routes-table) 'list))
+			    routes-table))))
 
-;; (defun evaluate-widest-paths (to routes-table weight-table)
-;;   (restore-path to
-;; 		(reduce (lambda (min-idx current)
-;; 			  (if (and current
-;; 				   (> (aref (gethash to weight-table)
-;; 					    min-idx)
-;; 				      )))))))
+(defun evaluate-widest-paths (to routes-table weight-table)
+  (break "~A" weight-table)
+  ;; (cons to
+  ;; 	(restore-path to
+  ;; 		      (reduce (lambda (min-idx current)
+  ;; 				(if (and current
+  ;; 					 (> (aref (gethash to weight-table)
+  ;; 						  min-idx)
+  ;; 					    )))))))
+  )
 
 (defun propagate-route-table ()
   (maphash (lambda (id node)
 	     (declare (ignore node))
-	     (let ((routes-table (create-route-table id))
-	     	   ;; (widest-paths-table (make-node-map))
-	     	   ;; (shortest-paths-table (make-node-map))
-		   )
+	     (multiple-value-bind (weight-table routes-table) (create-route-table id)
 	       (setf (gethash id *routes-table*)
 		     (alist-hash-table
 		      (mapcar (lambda (to)
 				(cons to
+				      ;; (evaluate-widest-paths to routes-table weight-table)
 				      (evaluate-shortest-paths to routes-table)))
 			      (remove id (hash-table-keys (network-nodes *network*)))))))
 	     )

@@ -75,7 +75,9 @@
 			 ("/net" :get initialize-network)
 			 ("/nodes" :get get-nodes)
 			 ("/edges" :get get-edges)
-			 ("/gen-net" :post generate-network)))
+			 ("/gen-net" :post generate-network)
+			 ("/rt-cols" :get rt-cols)
+			 ("/rt-data" :post rt-data)))
 
 (defun start-server ()
   ;; Some optional configuration.

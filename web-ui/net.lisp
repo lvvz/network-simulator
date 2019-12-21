@@ -2,17 +2,52 @@
     (:nicknames :ns-ui-net)
   (:use :common-lisp :cl-who :alexandria :yason)
   (:use :network-simulator/network
+	:network-simulator/node
 	:network-simulator/init
-	:network-simulator/utils)
+	:network-simulator/utils
+	:network-simulator/routing)
   (:export #:initialize-network
 	   #:get-nodes
 	   #:get-edges
 	   #:generate-network
 
 	   #:prepare-edges
-	   #:prepare-nodes))
+	   #:prepare-nodes
+
+	   #:rt-cols
+	   #:rt-data))
 
 (in-package :ns-ui-net)
+
+
+(defgeneric get-table-columns (type)
+  (:method (tp)))
+
+(defgeneric get-table-data (obj)
+  (:method (obj)))
+
+
+(defmacro define-tabulable-struct (name () &rest slots)
+  (let ((slot-names (mapcar #'first slots))
+	(slot-titles (mapcar #'second slots)))
+    `(progn
+       (defstruct ,name
+	 ,@slot-names)
+       (defmethod get-table-columns ((tp (eql ',name)))
+	 (encode (list ,@(mapcar (lambda (name title)
+				   (plist-hash-table `("title" ,title "field" ,(format nil "~A" name))))
+				 slot-names
+				 slot-titles))
+		 yason::*json-output*))
+       (defmethod get-table-data ((obj ,name))
+	 (alist-hash-table
+	  (mapcar (lambda (slot)
+		    (cons (format nil "~A" (sb-mop:slot-definition-name slot))
+			  (format nil "~A" (slot-value obj (sb-mop:slot-definition-name slot)))))
+		  (sb-mop:class-direct-slots (class-of obj)))))
+       (defmethod encode ((obj ,name) &optional (stream *standard-output*))
+	 (encode (get-table-data obj) stream))
+       )))
 
 
 (defparameter +network-generate-form+
@@ -82,7 +117,7 @@
 (defun create-net-auto-gen-form (url)
   (let* ((id (symbol-name (gensym "form")))
 	 (id-expr (jquery-id id)))
-    `(:div :class "container"
+    `(:div :class "container-fluid"
 	   (:form :id ,id :action ,url  :method "POST"
 		  ,@(mapcar (curry #'apply #'create-from-element)
 			    +network-generate-form+)
@@ -107,33 +142,54 @@
 		     :data-toggle "collapse"
 		     (str ,title)))
 	   (:div :id ,card
-		 :class "collapse show"
+		 :class "collapse"
 		 :data-parent ,card-root-id-expr
 		 (:div :class "card-body" ,body)))))
+
+(defun create-table-placeholder (id)
+  `(:div :class "container-fluid" :id ,id
+	 ))
 
 (defun create-side-menu ()
   (let ((cards `(("c1" "Автоматична генерація"
 		       ,(curry #'create-net-auto-gen-form "/gen-net"))
 		 ("c2" "Тестування"
-		       ,(curry #' create-net-auto-gen-form "/gen-net"))))
+		       ,(curry #'create-net-auto-gen-form "/gen-net"))
+		 ("c-1" "Таблиця маршрутизації"
+			,(curry #'create-table-placeholder "route-table"))))
 	(card-root "card-root"))
     `(:div :id ,card-root
 	   ,@(mapcar (curry #'apply #'create-card card-root)
 		     cards))))
 
+(defun include-css (url)
+  `(:link :rel "stylesheet" :href ,url))
+
+(defun inline-css (text)
+  `(:style :type "text/css" (str ,text)))
+
+(defun include-js (url)
+  `(:script :type "text/javascript" :src ,url))
+
+(defun inline-js (text)
+  `(:script :type "text/javascript" (str ,text)))
+
 (defun create-index-page (index-script index-css)
   `(:html
     (:head
      (:title "Мережа передачі даних")
-     (:link :rel "stylesheet" :href "https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css")
-     (:script :type "text/javascript" :src "https://unpkg.com/vis-network/standalone/umd/vis-network.min.js")
-     (:script :type "text/javascript" (str ,index-script))
-     (loop :for script :in '("https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"
-			     "https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.16.0/umd/popper.min.js"
-			     "https://maxcdn.bootstrapcdn.com/bootstrap/4.4.1/js/bootstrap.min.js")
-	   :do (htm (:script :src script)))
-     (:link :rel "stylesheet" :href "https://maxcdn.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css")
-     (:style :type "text/css" (str ,index-css)))
+     ,@(mapcar #'include-css
+	       '("https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css"
+		 "https://unpkg.com/tabulator-tables@4.5.2/dist/css/tabulator.min.css"
+		 "https://maxcdn.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css"))
+     ,@(mapcar #'include-js
+	       '("https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"
+		 "https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.16.0/umd/popper.min.js"
+		 "https://maxcdn.bootstrapcdn.com/bootstrap/4.4.1/js/bootstrap.min.js"
+		 "https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"
+		 "https://unpkg.com/tabulator-tables@4.5.2/dist/js/tabulator.min.js"))
+     ,(inline-js index-script)
+     ,(inline-css index-css))
     (:body
      (:div :class "container-fluid"
 	   (:div :class "row"
@@ -168,3 +224,58 @@
     				("edges" . ,(prepare-edges))))
 	    stream)
     (get-output-stream-string stream)))
+
+
+(define-tabulable-struct foo ()
+  (a "A")
+  (b "B"))
+
+(define-tabulable-struct routing-entry ()
+  (network "Мережа")
+  (mask "Маска")
+  (interface "Інт.")
+  (next-router-interface "Інт. наст.")
+  (next-router "Наст.")
+  (metric "Метрика"))
+
+(defun rt-cols (request)
+  (declare (ignore request))
+  (with-output-to-string* (:indent t)
+    (get-table-columns 'routing-entry)))
+
+(defun before-last (lst)
+  (if (rest (rest lst))
+      (before-last (rest lst))
+      lst))
+
+(defun prepare-rt-table-for-node (id)
+  (mapcan (lambda (id-rt)
+	    (mapcar (lambda (path)
+		      (let* (;; (interface (gethash to-id (node-interfaces (get-node id))))
+			     (next-router (first (before-last path))))
+			;; (break "~A ~A ~A" next-router path (node-interfaces (get-node id)))
+			
+			(make-routing-entry
+			 :network (channel-address (gethash (second path)
+							    (node-channels (get-node (first path)))))
+			 :mask "255.255.255.0"
+			 :interface (format nil "Int~A"
+					    (ip-address-last
+					     (interface-address
+					      (gethash next-router
+						       (node-interfaces (get-node id))))))
+			 :next-router-interface (format nil "Rt~A" (first path))
+			 :next-router (interface-address
+				       (gethash next-router
+						(node-interfaces (get-node id))))
+			 :metric (1- (1- (list-length path))))))
+		    id-rt))
+	  ;; (hash-table-keys (gethash id *routes-table*))
+	  (hash-table-values (gethash id *routes-table*))))
+
+(defun rt-data (request)
+  (let ((node-id (parse-integer (tbnl:post-parameter "node-id" request))))
+    ;; (break "~A" (gethash node-id *routes-table*))
+    (with-output-to-string* (:indent t)
+      (encode (prepare-rt-table-for-node node-id)
+	      yason::*json-output*))))

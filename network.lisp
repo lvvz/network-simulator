@@ -24,7 +24,18 @@
 	   #:channel-from
 	   #:channel-to
 	   #:channel-weight
-	   #:channel-duplex-p))
+	   #:channel-duplex-p
+	   #:channel-address
+
+	   #:build-interface
+	   #:interface-address
+	   #:interface-channel-id
+
+	   #:create-address-generator
+	   #:*address-generator*
+	   #:make-ip-address
+	   #:ip-address-value
+	   #:ip-address-last))
 
 (in-package :ns-net)
 
@@ -35,6 +46,22 @@
 
 (defvar *channels-id-generator*)
 
+(defvar *address-generator*)
+
+(defstruct ip-address
+  value last)
+
+(defun create-address-generator ()
+  (let ((num-gen (make-integer-generator)))
+    (lambda ()
+      (make-ip-address :value (funcall num-gen) :last 0))))
+
+(defmethod print-object ((object ip-address) stream)
+  (with-slots (value last) object
+    (let ((main (mod value 256))
+	  (secondary (floor value 256)))
+      (format stream "10.~A.~A.~A" main secondary last))))
+
 (defstruct channel-builder
   error-probability
   duplex-p
@@ -42,9 +69,17 @@
 
 (defstruct channel
   from to
+  address
   error-probability
   duplex-p
   weight)
+
+(defstruct interface
+  channel-id
+  address)
+
+(defun build-interface (address ch-id)
+  (make-interface :address address :channel-id ch-id))
 
 (defun build-channel (channel-builder from to)
   (let ((channel
@@ -52,6 +87,7 @@
 	   :from from
 	   :to to
 	   :error-probability (channel-builder-error-probability channel-builder)
+	   :address (funcall *address-generator*)
 	   :duplex-p (funcall (channel-builder-duplex-p channel-builder))
 	   :weight (funcall (channel-builder-weight-generator channel-builder)))))
     (setf (gethash (funcall *channels-id-generator*)

@@ -22,6 +22,11 @@
 (defun create-connection (channel id to-node-id availiable-nodes)
   (setf (gethash id (node-channels (get-node to-node-id)))
 	channel)
+  (let ((interface-id (funcall (node-interface-generator (get-node to-node-id)))))
+    (setf (gethash id (node-interfaces (get-node to-node-id)))
+	  (build-interface (make-ip-address :value (ip-address-value (channel-address channel))
+					    :last interface-id)
+			   id)))
   (cleanup-availiability to-node-id availiable-nodes))
 
 (defun create-channel (id to-node-id channel-builder availiable-nodes)

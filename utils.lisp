@@ -26,8 +26,8 @@
     (setf (aref seq i)
 	  (aref seq (1- (length seq))))))
 
-(defun make-integer-generator ()
-  (let ((i 0))
+(defun make-integer-generator (&optional (initial-value 0))
+  (let ((i initial-value))
     (lambda () (prog1 i
 		 (incf i)))))
 

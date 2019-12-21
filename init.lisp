@@ -20,6 +20,7 @@
   (princ "Network build starts" *network-log*)
   (setf *channels* (make-node-map))
   (let ((*channels-id-generator* (make-integer-generator)))
+    (setf *address-generator* (create-address-generator))
     (setf *network*
 	  (build-network
 	   (make-network-builder
@@ -46,8 +47,10 @@
 			   :error-probability 0.01
 			   :duplex-p (make-random-boolean-generator)
 			   :weight-generator (make-random-generator-from #(2 3 7 8 12 14 16 18 20 21 24 29))))
-    (let ((*routes-table* (make-node-map)))
-      (propagate-route-table)
-      (network-dot)
-      ;; (break "~A" *routes-table*)
-      )))
+    (setf *routes-table*
+	  (let ((*routes-table* (make-node-map)))
+	    (propagate-route-table)
+	    (network-dot)
+	    *routes-table*
+	    ;; (break "~A" *routes-table*)
+	    ))))

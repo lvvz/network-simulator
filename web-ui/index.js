@@ -1,3 +1,23 @@
+function putTable (id, tabledata, columns) {
+    var table = new Tabulator("#"+id, {
+	layout:"fitColumns",      //fit columns to width of table	
+	paginationSize:17,         //allow 7 rows per page of data
+	pagination:"local",       //paginate the data
+	movableColumns:true,      //allow column order to be changed
+	/*
+	responsiveLayout:"hide",  //hide columns that dont fit on the table
+	tooltips:true,            //show tool tips on cells
+	addRowPos:"top",          //when adding a new row, add it to the top of the table
+	history:true,             //allow undo and redo actions on the table
+	resizableRows:true,       //allow row order to be changed
+	initialSort:[             //set the initial sort order of the data
+		{column:"name", dir:"asc"},
+	],*/
+	columns:columns,
+    });
+    table.setData (tabledata);
+}
+
 function drawNetwork (nodesJSON, edgesJSON) {
     var nodes = new vis.DataSet(nodesJSON);
     let edges = new vis.DataSet(edgesJSON);
@@ -14,6 +34,21 @@ function drawNetwork (nodesJSON, edgesJSON) {
 	width: '100%'
     };
     let network = new vis.Network(container, data, options);
+    network.on ("click", function (params) {
+	console.log (params);
+	if (params.nodes[0] != undefined) {
+	    console.log('click event on '+params.nodes[0]);
+	    $.getJSON ("rt-cols", function (rt_cols) {
+		$.post ("rt-data", {
+		    "node-id": params.nodes[0]
+		}, function (response) {
+		    console.log (response);
+		    let rt_table = $.parseJSON(response);
+		    putTable("route-table", rt_table, rt_cols);
+		});
+	    });
+	}
+    });
 }
 
 function drawNetworkFromJSON (result) {
