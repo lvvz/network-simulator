@@ -31,24 +31,81 @@ function drawNetwork (nodesJSON, edgesJSON) {
     let options = {
 	autoResize: true,
 	height: '100%',
-	width: '100%'
+	width: '100%',
+	interaction: {selectConnectedEdges: false},
+	groups: {
+	    defaultNode:{
+		color:{
+		    highlight:{
+			background:'blue',
+			borderWidth:3
+		    }
+		}
+	    },
+	    shortestPath:{
+		color:{
+		    highlight:{
+			background:'red',
+			borderWidth:3
+		    }
+		}
+	    }
+	}
     };
     let network = new vis.Network(container, data, options);
-    network.on ("click", function (params) {
+    let shortestPaths = undefined;
+    function drawShortestPaths (shortest_paths, from, to) {
+	shortestPaths = shortest_paths.nodes.map (x=>x);
+	shortest_paths.nodes.forEach ((id) => {
+	    nodes.update ({id:id, group: "shortestPath"});
+	});
+	network.setSelection (shortest_paths);
+	//nodes.update ({id:from, group: "shortestPath"});
+	//nodes.update ({id:to, group: "shortestPath"});
+    }
+    function networkClick (params) {
+	if (shortestPaths != undefined) {
+	    shortestPaths.forEach ((id) => {
+		console.log ("im doing"+id);
+		nodes.update ({id:id, group: "defaultNode"});
+	    });
+	}
 	console.log (params);
-	if (params.nodes[0] != undefined) {
-	    console.log('click event on '+params.nodes[0]);
+	let from = params.nodes[0];
+	if (from != undefined) {
+	    console.log('click event on '+from);
 	    $.getJSON ("rt-cols", function (rt_cols) {
 		$.post ("rt-data", {
-		    "node-id": params.nodes[0]
+		    "node-id": from
 		}, function (response) {
-		    console.log (response);
+		    //console.log (response);
 		    let rt_table = $.parseJSON(response);
 		    putTable("route-table", rt_table, rt_cols);
 		});
 	    });
 	}
+    }
+    $("#next-node").on ("click", function () {
+	console.log (network);
+	let from = network.getSelection ().nodes [0];
+	//console.log (network.getSelection ());
+	network.once ("click", function (params) {
+	    console.log ("klik");
+	    if (from != undefined) {
+		let to = params.nodes[0];
+		$.post ("rt-shortest-paths", {
+		    "from": from,
+		    "to": to
+		}, function (response) {
+		    let shortest_paths = $.parseJSON(response);
+		    console.log (shortest_paths);
+		    drawShortestPaths (shortest_paths, from, to);
+		});
+	    }
+	    // network.on ("click", networkClick);
+	});
     });
+    network.on ("click", networkClick);
 }
 
 function drawNetworkFromJSON (result) {

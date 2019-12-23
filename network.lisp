@@ -21,6 +21,7 @@
 	   #:build-channel
 	   #:make-channel-builder
 
+	   #:channel-id
 	   #:channel-from
 	   #:channel-to
 	   #:channel-weight
@@ -68,6 +69,7 @@
   weight-generator)
 
 (defstruct channel
+  id
   from to
   address
   error-probability
@@ -82,16 +84,17 @@
   (make-interface :address address :channel-id ch-id))
 
 (defun build-channel (channel-builder from to)
-  (let ((channel
+  (let* ((id (funcall *channels-id-generator*))
+	 (channel
 	  (make-channel
+	   :id id
 	   :from from
 	   :to to
 	   :error-probability (channel-builder-error-probability channel-builder)
 	   :address (funcall *address-generator*)
 	   :duplex-p (funcall (channel-builder-duplex-p channel-builder))
 	   :weight (funcall (channel-builder-weight-generator channel-builder)))))
-    (setf (gethash (funcall *channels-id-generator*)
-		   *channels*)
+    (setf (gethash id *channels*)
 	  channel)))
 
 (defstruct network

@@ -77,7 +77,8 @@
 			 ("/edges" :get get-edges)
 			 ("/gen-net" :post generate-network)
 			 ("/rt-cols" :get rt-cols)
-			 ("/rt-data" :post rt-data)))
+			 ("/rt-data" :post rt-data)
+			 ("/rt-shortest-paths" :post rt-shortest-paths)))
 
 (defun start-server ()
   ;; Some optional configuration.

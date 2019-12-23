@@ -15,7 +15,9 @@
 	   #:prepare-nodes
 
 	   #:rt-cols
-	   #:rt-data))
+	   #:rt-data
+
+	   #:rt-shortest-paths))
 
 (in-package :ns-ui-net)
 
@@ -63,14 +65,16 @@
 	    (alist-hash-table
 	     (list (cons "id" id)
 		   (cons "label" (format nil "RT-~A" id))
-		   (cons "color"
-			 (if (eq id (network-satellite-node-id *network*))
-			     (alist-hash-table
-			      (list (cons "border" "#367377")
-				    (cons "background" "#c98c88")))
-			     (alist-hash-table
-			      (list (cons "border" "#367377")
-				    (cons "background" "#439095"))))))))
+		   (cons "group" "defaultNode")
+		   ;; (cons "color"
+		   ;; 	 (if (eq id (network-satellite-node-id *network*))
+		   ;; 	     (alist-hash-table
+		   ;; 	      (list (cons "border" "#367377")
+		   ;; 		    (cons "background" "#c98c88")))
+		   ;; 	     (alist-hash-table
+		   ;; 	      (list (cons "border" "#367377")
+		   ;; 		    (cons "background" "#439095")))))
+		   )))
 	  (hash-table-keys (network-nodes *network*))))
 
 (defun get-nodes (request)
@@ -79,16 +83,25 @@
     (encode (prepare-nodes)
 	    yason::*json-output*)))
 
+(defun weight-to-width (weight)
+  (floor (* 20 (/ 1 weight))))
+
 (defun prepare-edges ()
   (mapcar (lambda (id)
 	    (let ((channel (gethash id *channels*)))
 	      (alist-hash-table
-	       (list (cons "from" (channel-from channel))
-		     (cons "to" (channel-to channel))
-		     (cons "label" (format nil "~A" (channel-weight channel)))
-		     (if (channel-duplex-p channel)
-			 (cons "width" 4)
-			 (cons "dashes" t))))))
+	       (list* (cons "id" (channel-id channel))
+		      (cons "from" (channel-from channel))
+		      (cons "to" (channel-to channel))
+		      (cons "label" (format nil "[~A]~%~A" (channel-weight channel) (channel-address channel)))
+		      ;; (cons "labelFrom" "booo")
+		      ;; (cons "labelTo" "booo")
+		      (if (channel-duplex-p channel)
+			  (list (cons "arrows" "to, from")
+				(cons "width" (weight-to-width (channel-weight channel))))
+			  (list ;; (cons "dashes" t)
+			   (cons "color" (plist-hash-table '("opacity" ".5")))
+				(cons "width" (weight-to-width (channel-weight channel)))))))))
 	  (hash-table-keys *channels*)))
 
 (defun get-edges (request)
@@ -100,30 +113,66 @@
 (defun jquery-id (label)
   (format nil "#~A" label))
 
+(defparameter +input-builder-helper+
+  (plist-hash-table
+   (list "number" (lambda (type name id &optional default-value)
+		    `(:input :id ,id :class "from-control" :type ,type :name ,name
+			     ,@(when default-value
+				 `(:value ,default-value))))
+	 "select" (lambda (type name id options)
+		    (declare (ignore type))
+		    `(:select :id ,id :class "from-control" :name ,name
+			      ,@(mapcar (lambda (option)
+					  `(:option :value ,(first option)
+						    ,(second option)))
+					options))))
+   :test #'equal))
+
 (defun create-from-element (name label type &optional default-value)
   (let ((id (symbol-name (gensym "in"))))
     `(:div :class "form-group"
 	   (:label :for ,id ,label)
-	   (:input :id ,id :class "from-control" :type ,type :name ,name
-		   ,@(when default-value
-		       `(:value ,default-value))))))
+	   ,(funcall (gethash type +input-builder-helper+)
+		     type name id default-value))))
 
-(defun create-submit-button (label &optional on-click)
-  `(:button :type "submit" :class "btn btn-primary"
-	    ,@(when on-click
-		`(:onclick ,on-click))
-	    ,label))
+(defun create-button (label &key id type on-click)
+  `(:button
+    :class "btn btn-primary"
+    ,@(when id
+	`(:id ,id))
+    ,@(when type
+	`(:type ,type))
+    ,@(when on-click
+	`(:onclick ,on-click))
+    ,label))
 
-(defun create-net-auto-gen-form (url)
+(defun create-form (url info button-label &optional on-click)
   (let* ((id (symbol-name (gensym "form")))
 	 (id-expr (jquery-id id)))
     `(:div :class "container-fluid"
 	   (:form :id ,id :action ,url  :method "POST"
 		  ,@(mapcar (curry #'apply #'create-from-element)
-			    +network-generate-form+)
-		  ,(create-submit-button
-		    "Згенерувати"))
-	   (:script :type "text/javascript" ,(format nil "customSubmit(~S, drawNetworkFromJSON);" id-expr)))))
+			    info)
+		  ,(create-button button-label :type "submit"))
+	   ,(when on-click
+	      `(:script :type "text/javascript" ,(funcall on-click id-expr))))))
+
+(defun create-net-auto-gen-form (url)
+  (create-form url +network-generate-form+ "Згенерувати"
+	       (curry #'format nil "customSubmit(~S, drawNetworkFromJSON);")))
+
+(defparameter +network-send-message+
+  '(("mode" "Виберіть режим передачі" "select"
+     (("datagram" "Дейтаграмний")
+      ("logical-conn" "З логічним з'єднанням")
+      ("virtual-chan" "Зі встановленням віртуального каналу")))
+    ("message-size" "Розмір повідомлення, Б" "number" 4096)
+    ("segment-size" "Розмір сегмента, Б" "number" 1024)
+    ("packet-size" "Розмір пакета, Б" "number" 512)))
+
+(defun create-send-message-form (url)
+  (create-form url +network-send-message+ "Кінцевий вузол"
+	       (curry #'format nil "customSubmit(~S, ()=>{});")))
 
 (defun create-net-paths-form ()
   `())
@@ -135,6 +184,7 @@
   (let ((body (funcall body-builder))
 	(card-id-expr (jquery-id card))
 	(card-root-id-expr (jquery-id card-root)))
+    (declare (ignore card-root-id-expr))
     `(:div :class "card"
 	   (:div :class "card-header"
 		 (:a :class "collapsed card-link"
@@ -143,12 +193,15 @@
 		     (str ,title)))
 	   (:div :id ,card
 		 :class "collapse"
-		 :data-parent ,card-root-id-expr
+		 ;; :data-parent ,card-root-id-expr
 		 (:div :class "card-body" ,body)))))
 
 (defun create-table-placeholder (id)
-  `(:div :class "container-fluid" :id ,id
-	 ))
+  `(:div :class "container-fluid"
+	 (:div :class "row"
+	       ,(create-send-message-form "/send-message")
+	 (:div :class "row"
+	       (:div :class "container-fluid" :id ,id)))))
 
 (defun create-side-menu ()
   (let ((cards `(("c1" "Автоматична генерація"
@@ -213,13 +266,16 @@
    `("number" ,(rcurry #'parse-integer :junk-allowed t))
    :test #'equal))
 
+(defun get-post-request-parameters (info request)
+  (mapcar (lambda (input-info)
+	    (funcall (gethash (funcall +ngi-type-accessor+ input-info) +input-parsers+)
+		     (tbnl:post-parameter (funcall +ngi-name-accessor+ input-info)
+					  request)))
+	  info))
+
 (defun generate-network (request)
   (let ((stream (make-string-output-stream)))
-    (apply #'init-network (mapcar (lambda (input-info)
-				    (funcall (gethash (funcall +ngi-type-accessor+ input-info) +input-parsers+)
-					     (tbnl:post-parameter (funcall +ngi-name-accessor+ input-info)
-								  request)))
-				  +network-generate-form+))
+    (apply #'init-network (get-post-request-parameters +network-generate-form+ request))
     (encode (alist-hash-table `(("nodes" . ,(prepare-nodes))
     				("edges" . ,(prepare-edges))))
 	    stream)
@@ -279,3 +335,27 @@
     (with-output-to-string* (:indent t)
       (encode (prepare-rt-table-for-node node-id)
 	      yason::*json-output*))))
+
+(defparameter +path-input+
+  '(("from" "" "number")
+    ("to" "" "number")))
+
+(defun rt-shortest-paths (request)
+  (destructuring-bind (from to) (get-post-request-parameters +path-input+ request)
+    (let ((edges (list))
+	  (nodes (make-node-map)))
+      (mapc (lambda (x)
+	      (maplist (lambda (nodes)
+			 (when (rest nodes)
+			   (push (channel-id (gethash (second nodes) (node-channels (get-node (first nodes)))))
+				 edges)))
+		       x))
+	    (gethash to (gethash from *routes-table*)))
+      (mapc (lambda (x)
+	      (setf (gethash x nodes) t))
+	    (apply #'append (gethash to (gethash from *routes-table*))))
+      (with-output-to-string* ()
+	(encode (plist-hash-table
+		 (list "nodes" (hash-table-keys nodes)
+		       "edges" edges))
+	 yason::*json-output*)))))
