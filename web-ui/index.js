@@ -40,6 +40,45 @@ function putTable (id, tabledata, columns) {
     table.setData (tabledata);
 }
 
+function drawChart (container, items) {
+    // let dataset = new vis.DataSet(items);
+    // console.log(dataset);
+    // let options = {
+    // 	start:  items[items.length-1].x,
+    // 	end: items[0].x
+    // };
+    // // let options = {};
+    // let graph2d = new vis.Graph2d(container, dataset, options);
+    let ctx = container;
+    let scatterChart = new Chart(ctx, {
+	type: 'line',
+	data: {
+            datasets: [{
+		label: 'Scatter Dataset',
+		data: /*[{
+                    x: -10,
+                    y: 0
+		}, {
+                    x: 0,
+                    y: 10
+		}, {
+                    x: 10,
+                    y: 5
+		    }]*/
+		items
+            }]
+	},
+	options: {
+            scales: {
+		xAxes: [{
+                    type: 'linear',
+                    position: 'bottom'
+		}]
+            }
+	}
+    });
+}
+
 function drawNetwork (nodesJSON, edgesJSON) {
     var nodes = new vis.DataSet(nodesJSON);
     let edges = new vis.DataSet(edgesJSON);
@@ -124,8 +163,15 @@ function drawNetwork (nodesJSON, edgesJSON) {
     		    let shortest_paths = $.parseJSON(response);
     		    console.log (shortest_paths);
     		    drawShortestPaths (shortest_paths, from, to);
-		    postForm($("#send-message"), function (report) {
-    			alert(report);
+		    postForm($("#send-message"), function (reports) {
+			console.log(reports);
+			reports.forEach((report, i) => {
+			    console.log(report);
+			    // $("#visualization").append('<div class="my-viz-chart" id="vis'+i+'"></div>');
+			    $("#visualization").append('<canvas class="my-viz-chart" id="viz'+i+'"></canvas>');
+			    drawChart($('#viz'+i).get()[0], report);
+			    alert(report);
+			});
 		    });
     		});
     	    }

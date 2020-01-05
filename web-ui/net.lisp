@@ -175,9 +175,13 @@
      (("datagram" "Дейтаграмний")
       ("logical-conn" "З логічним з'єднанням")
       ("virtual-chan" "Зі встановленням віртуального каналу")))
-    ("message-size" "Розмір повідомлення, Б" "number" 4096)
-    ;; ("segment-size" "Розмір сегмента, Б" "number" 1024)
-    ("packet-size" "Розмір пакета, Б" "number" 512)))
+    ("max-message-size" "Максимальний розмір повідомлення, Б" "number" 4096)
+    ("min-message-size" "Мінімальний розмір повідомлення, Б" "number" 64)
+    ("message-measurements" "Кількість вимірів" "number" 10)
+    ("mtu" "MTU, Б" "number" 1500)
+    ("max-packet-count" "Максимальна кількість пакетів" "number" 32)
+    ("min-packet-count" "Мінімальна кількість пакетів" "number" 1)
+    ("packet-measurements" "Кількість вимірів" "number" 10)))
 
 (defun create-send-message-form (url)
   (create-form url +network-send-message+ 
@@ -246,11 +250,15 @@
      ,@(mapcar #'include-css
 	       '("https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css"
 		 "https://unpkg.com/tabulator-tables@4.5.2/dist/css/tabulator.min.css"
+		 "https://visjs.github.io/vis-timeline/dist/vis-timeline-graph2d.min.css"
 		 "https://maxcdn.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css"))
      ,@(mapcar #'include-js
 	       '("https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"
 		 "https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.16.0/umd/popper.min.js"
 		 "https://maxcdn.bootstrapcdn.com/bootstrap/4.4.1/js/bootstrap.min.js"
+		 ;; "https://visjs.github.io/vis-timeline/dist/vis.js"
+		 ;; "https://unpkg.com/vis-timeline@6.3.5/dist/vis-timeline-graph2d.min.js"
+		 "https://cdn.jsdelivr.net/npm/chart.js@2.9.3/dist/Chart.min.js"
 		 "https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"
 		 "https://unpkg.com/tabulator-tables@4.5.2/dist/js/tabulator.min.js"))
      ,(inline-js index-script)
@@ -261,7 +269,8 @@
 		 (:div :class "col-sm-8"
 		       (:div :id "mynetwork"))
 		 (:div :class "col-sm-4"
-		       ,(create-side-menu)))))))
+		       ,(create-side-menu)))
+	   (:div :class "row" :id "visualization")))))
 
 (defun initialize-network (request)
   (declare (ignore request))
@@ -396,8 +405,8 @@
 (defun rfuncall (fn-list arg)
   (reduce #'funcall fn-list :initial-value arg :from-end t))
 
-(defstruct busy-range
-  begin end)
+;; (defstruct busy-range
+;;   begin end)
 
 (defstruct simple-channel
   release-time)
@@ -490,7 +499,7 @@
     (with-slots (from to message-size packet-size) info
       (let ((paths (gethash from (gethash to *routes-table*)))
 	    (channel-release-time (make-node-map))
-	    (packets-count (ceiling message-size packet-size))
+	    (packets-count packet-size)
 	    (packets-index 0))
 	(loop :while (< packets-index packets-count)
 	      :do (dolist (path paths)
@@ -519,13 +528,31 @@
 (defun rrapply (composer fn-list &rest args)
   (apply composer (mapcar (apply #'rcurry #'rapply args) fn-list)))
 
-(defun simulate-send (from to mode message-size packet-size)
-  (let ((info (create-send from to message-size packet-size 0 0)))
-    (send mode info)
-    (rapply #'list '(send-simulation-info-data-packets
-		     send-simulation-info-service-packets
-		     send-simulation-info-message-send-time)
-	    info)))
+(defun simulate-send (from to mode
+		      max-message-size min-message-size message-measurements
+		      mtu
+		      max-packet-count min-packet-count packet-measurements)
+  from to mode max-message-size min-message-size message-measurements mtu max-packet-count min-packet-count packet-measurements
+  (let ((report (list))
+	(packet-size  min-packet-count)
+  	(message-size-step (/ (- max-message-size min-message-size)
+  			      message-measurements)))
+    (dotimes (message-size-i message-measurements)
+      (let* ((message-size (floor (+ min-message-size
+				     (* message-size-i message-size-step))))
+	     (info (create-send from to message-size packet-size 0 0)))
+	(send mode info)
+	;; (rapply #'list '(send-simulation-info-data-packets
+	;; 		 send-simulation-info-service-packets
+	;; 		 send-simulation-info-message-send-time)
+	;; 	info)
+	(push (plist-hash-table (list "x" message-size
+				      "y" (send-simulation-info-message-send-time info)
+				      "id" message-size-i)
+				:test #'equal)
+	      report)))
+    (list report)
+    ))
 
 (defmacro blet (it &optional format)
   `(let ((it ,it))
