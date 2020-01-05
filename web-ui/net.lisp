@@ -1,6 +1,6 @@
 (uiop:define-package :network-simulator/web-ui/net
     (:nicknames :ns-ui-net)
-  (:use :common-lisp :cl-who :alexandria :yason)
+  (:use :common-lisp :cl-who :alexandria :anaphora :yason)
   (:use :network-simulator/network
 	:network-simulator/node
 	:network-simulator/init
@@ -169,8 +169,8 @@
 	       :on-click (curry #'format nil "customSubmit(~S, drawNetworkFromJSON);")))
 
 (defparameter +network-send-message+
-  '(("from" "" "number" 0)
-    ("to" "" "number" 0)
+  '(("from" "Відправник" "number" 0)
+    ("to" "Отримувач" "number" 0)
     ("mode" "Виберіть режим передачі" "select"
      (("datagram" "Дейтаграмний")
       ("logical-conn" "З логічним з'єднанням")
@@ -191,7 +191,8 @@
 	 (:div :class "row"
 	       ,(create-send-message-form url))
 	 (:div :class "row"
-	       ,(create-button "Next node" :id "next-node"))))
+	       (:div :class "container-fluid"
+		     ,(create-button "Натисніть, щоб вибрати отримувача" :id "next-node")))))
 
 (defun create-card (card-root card title body-builder)
   (let ((body (funcall body-builder))
@@ -373,30 +374,165 @@
 	 yason::*json-output*)))))
 
 (defstruct send-simulation-info
-  from to message-size packet-size)
+  from to message-size packet-size
+  data-packets service-packets
+  message-send-time)
 
-(defun create-send (from to message-size packet-size)
+(defun create-send (from to message-size packet-size data-packets service-packets)
   (make-send-simulation-info :from from :to to :message-size message-size
-			     :packet-size packet-size))
+			     :packet-size packet-size
+			     :data-packets data-packets
+			     :service-packets service-packets))
 
-(defun simulate-packet-send-through-path (start-time path)
-  (let ((visited-nodes (make-node-map)))
-    (setf (gethash (first path) visited-nodes)
-	  start-time)
-    ))
+(defun funcall-reversed (fn &rest args)
+  (apply fn (reverse args)))
+
+(defun reversed-lambda (fn)
+  (lambda (&rest args) (apply #'funcall-reversed fn args)))
+
+(defun -> (arg &rest fn-list)
+  (reduce (reversed-lambda #'funcall) fn-list :initial-value arg :from-end nil))
+
+(defun rfuncall (fn-list arg)
+  (reduce #'funcall fn-list :initial-value arg :from-end t))
+
+(defstruct busy-range
+  begin end)
+
+(defstruct simple-channel
+  release-time)
+
+(defstruct duplex-channel
+  forward-release-time backward-release-time)
+
+(defparameter *current-time* nil)
+
+(defun add-weight-to-time (time channel)
+  (aif time
+       (+ (max it *current-time*)
+	  (channel-weight channel))
+       (+ *current-time*
+	  (channel-weight channel))))
+
+(defparameter *send-direction* :forward)
+
+(defgeneric release-time (rt)
+  (:method ((rt simple-channel))
+    (simple-channel-release-time rt))
+  (:method ((rt duplex-channel))
+    (case *send-direction*
+      (:forward (duplex-channel-forward-release-time rt))
+      (:backward (duplex-channel-backward-release-time rt)))))
+
+(defgeneric update-release-time (channel-rt nrt)
+  (:method ((channel-rt simple-channel) nrt)
+    (setf (simple-channel-release-time channel-rt) nrt))
+  (:method ((channel-rt duplex-channel) nrt)
+    (case *send-direction*
+      (:forward (setf (duplex-channel-forward-release-time channel-rt) nrt))
+      (:backward (setf (duplex-channel-backward-release-time channel-rt) nrt)))))
+
+(defgeneric new-release-time (channel-rt channel)
+  (:method ((channel-rt simple-channel) channel)
+    (add-weight-to-time (simple-channel-release-time channel-rt)
+			channel))
+  (:method ((channel-rt duplex-channel) channel)
+    (add-weight-to-time (case *send-direction*
+			  (:forward (duplex-channel-forward-release-time channel-rt))
+			  (:backward (duplex-channel-backward-release-time channel-rt)))
+			channel)))
+
+(defun update-channel-release-time (channel channel-release-time)
+  (unless (gethash (channel-id channel)
+		   channel-release-time)
+    (setf (gethash (channel-id channel)
+		   channel-release-time)
+	  (if (channel-duplex-p channel)
+	      (make-duplex-channel)
+	      (make-simple-channel))))
+  (update-release-time (gethash (channel-id channel)
+				channel-release-time)
+		       (new-release-time (gethash (channel-id channel)
+						  channel-release-time)
+					 channel)))
+
+(defparameter *send-time* nil)
+
+(defun simulate-packet-send-through-path-r (path channel-release-time)
+  ;; (blet *current-time*)
+  (aif (rest path)
+       (let* ((channel (gethash (second path)
+				(-> path #'first #'get-node #'node-channels)))
+	      (*current-time* ;; (blet (update-channel-release-time channel channel-release-time)
+		;; 	    "new: ~S")
+		(update-channel-release-time channel channel-release-time)))
+	 (simulate-packet-send-through-path-r it channel-release-time))
+       (setf *send-time* *current-time*)))
+
+(defun simulate-packet-send-through-path (path channel-release-time)
+  (let ((*current-time*
+	  (or (aand ;; (blet 
+	       ;; 	  "chrt: ~S")
+	       (gethash
+		(channel-id
+		 (gethash (second path)
+			  (-> path #'first #'get-node #'node-channels)))
+		channel-release-time)
+	       (let ((*send-direction* (case *send-direction*
+					 (:forward :backward)
+					 (:backward :forward))))
+		 (release-time it)))
+	      0)))
+    (simulate-packet-send-through-path-r path channel-release-time)))
 
 (defgeneric send (mode e)
   (:method ((mode (eql :datagram)) info)
     (with-slots (from to message-size packet-size) info
-      (let ((paths (blet (gethash from (gethash to *routes-table*)))))
-	(simulate-packet-send-through-path 0 paths)))))
+      (let ((paths (gethash from (gethash to *routes-table*)))
+	    (channel-release-time (make-node-map))
+	    (packets-count (ceiling message-size packet-size))
+	    (packets-index 0))
+	(loop :while (< packets-index packets-count)
+	      :do (dolist (path paths)
+		    (when (< packets-index packets-count)
+		      (simulate-packet-send-through-path path channel-release-time)
+		      (let ((*send-direction* :backward))
+			(simulate-packet-send-through-path (reverse path) channel-release-time))
+		      (incf (send-simulation-info-data-packets info))
+		      (incf (send-simulation-info-service-packets info))
+		      (incf packets-index))))
+	(setf (send-simulation-info-message-send-time info)
+	      (apply
+	       #'max
+	       (mapcar (lambda (path)
+			 (release-time (gethash
+					(channel-id
+					 (gethash (second path)
+						  (-> path
+						      #'first #'get-node #'node-channels)))
+					channel-release-time)))
+		       (mapcar #'reverse paths))))))))
+
+(defun rapply (composer fn-list &rest args)
+  (apply composer (mapcar (rcurry #'apply args) fn-list)))
+
+(defun rrapply (composer fn-list &rest args)
+  (apply composer (mapcar (apply #'rcurry #'rapply args) fn-list)))
 
 (defun simulate-send (from to mode message-size packet-size)
-  (send mode (create-send from to message-size packet-size)))
+  (let ((info (create-send from to message-size packet-size 0 0)))
+    (send mode info)
+    (rapply #'list '(send-simulation-info-data-packets
+		     send-simulation-info-service-packets
+		     send-simulation-info-message-send-time)
+	    info)))
 
-(defun blet (it)
-  (break "~S" it)
-  it)
+(defmacro blet (it &optional format)
+  `(let ((it ,it))
+     (break ,(or format "~S") it)
+     it))
 
-(defun send-message (request)  
-  (encode (blet (apply #'simulate-send (get-post-request-parameters +network-send-message+ request)))))
+(defun send-message (request)
+  (with-output-to-string* (:indent t)
+    (encode (apply #'simulate-send (get-post-request-parameters +network-send-message+ request))
+	    yason::*json-output*)))
