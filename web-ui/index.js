@@ -1,3 +1,25 @@
+function postForm (_this, jsonHandler) {
+    var post_url = _this.attr("action");
+    var form_data = _this.serialize();
+    console.log('aaaa');
+    console.log(post_url);
+    
+    $.post( post_url, form_data, function( response ) {
+	let result = $.parseJSON(response);
+	console.log (result);
+	jsonHandler (result);
+    });
+}
+
+function customSubmit (id_expr, jsonHandler) {
+    $("document").ready(() => {
+	$(id_expr).submit(function(event){
+	    event.preventDefault();
+	    postForm($(this), jsonHandler);
+	});
+    });
+}
+
 function putTable (id, tabledata, columns) {
     var table = new Tabulator("#"+id, {
 	layout:"fitColumns",      //fit columns to width of table	
@@ -72,6 +94,7 @@ function drawNetwork (nodesJSON, edgesJSON) {
 	}
 	console.log (params);
 	let from = params.nodes[0];
+	$("input[name=from]").val(from);
 	if (from != undefined) {
 	    console.log('click event on '+from);
 	    $.getJSON ("rt-cols", function (rt_cols) {
@@ -85,25 +108,29 @@ function drawNetwork (nodesJSON, edgesJSON) {
 	    });
 	}
     }
-    $("#next-node").on ("click", function () {
-	console.log (network);
-	let from = network.getSelection ().nodes [0];
-	//console.log (network.getSelection ());
-	network.once ("click", function (params) {
-	    console.log ("klik");
-	    if (from != undefined) {
-		let to = params.nodes[0];
-		$.post ("rt-shortest-paths", {
-		    "from": from,
-		    "to": to
-		}, function (response) {
-		    let shortest_paths = $.parseJSON(response);
-		    console.log (shortest_paths);
-		    drawShortestPaths (shortest_paths, from, to);
-		});
-	    }
-	    // network.on ("click", networkClick);
-	});
+    $("#next-node").on("click", function () {
+    	console.log (network);
+    	let from = network.getSelection ().nodes [0];
+    	network.once ("click", function (params) {
+    	    console.log ("klik");
+    	    if (from != undefined) {
+    		let to = params.nodes[0];
+		$("input[name=from]").val(from);
+		$("input[name=to]").val(to);
+    		$.post ("rt-shortest-paths", {
+    		    "from": from,
+    		    "to": to
+    		}, function (response) {
+    		    let shortest_paths = $.parseJSON(response);
+    		    console.log (shortest_paths);
+    		    drawShortestPaths (shortest_paths, from, to);
+		    postForm($("#send-message"), function (report) {
+    			alert(report);
+		    });
+    		});
+    	    }
+    	    // network.on ("click", networkClick);
+    	});
     });
     network.on ("click", networkClick);
 }
@@ -122,22 +149,6 @@ function getNetwork () {
     });
 }
 
-function customSubmit (id_expr, jsonHandler) {
-    $("document").ready(() => {
-	$(id_expr).submit(function(event){
-	    event.preventDefault();
-	    var post_url = $(this).attr("action");
-	    var form_data = $(this).serialize();
-	    console.log(form_data);
-	    
-	    $.post( post_url, form_data, function( response ) {
-		let result = $.parseJSON(response);
-		console.log (result);
-		jsonHandler (result);
-	    });
-	});
-    });
-}
 /*
 $( "form" ).on( "submit", function( event ) {
   event.preventDefault();

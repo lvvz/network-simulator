@@ -78,7 +78,8 @@
 			 ("/gen-net" :post generate-network)
 			 ("/rt-cols" :get rt-cols)
 			 ("/rt-data" :post rt-data)
-			 ("/rt-shortest-paths" :post rt-shortest-paths)))
+			 ("/rt-shortest-paths" :post rt-shortest-paths)
+			 ("/send-message" :post send-message)))
 
 (defun start-server ()
   ;; Some optional configuration.

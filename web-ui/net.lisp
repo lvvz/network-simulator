@@ -17,7 +17,9 @@
 	   #:rt-cols
 	   #:rt-data
 
-	   #:rt-shortest-paths))
+	   #:rt-shortest-paths
+
+	   #:send-message))
 
 (in-package :ns-ui-net)
 
@@ -146,39 +148,50 @@
 	`(:onclick ,on-click))
     ,label))
 
-(defun create-form (url info button-label &optional on-click)
-  (let* ((id (symbol-name (gensym "form")))
-	 (id-expr (jquery-id id)))
+(defun create-form (url info
+		    &key
+		      button-label
+		      on-click
+		      (id (symbol-name (gensym "form"))))
+  (let* ((id-expr (jquery-id id)))
     `(:div :class "container-fluid"
 	   (:form :id ,id :action ,url  :method "POST"
 		  ,@(mapcar (curry #'apply #'create-from-element)
 			    info)
-		  ,(create-button button-label :type "submit"))
+		  ,(when button-label
+		     (create-button button-label :type "submit")))
 	   ,(when on-click
 	      `(:script :type "text/javascript" ,(funcall on-click id-expr))))))
 
 (defun create-net-auto-gen-form (url)
-  (create-form url +network-generate-form+ "Згенерувати"
-	       (curry #'format nil "customSubmit(~S, drawNetworkFromJSON);")))
+  (create-form url +network-generate-form+
+	       :button-label "Згенерувати"
+	       :on-click (curry #'format nil "customSubmit(~S, drawNetworkFromJSON);")))
 
 (defparameter +network-send-message+
-  '(("mode" "Виберіть режим передачі" "select"
+  '(("from" "" "number" 0)
+    ("to" "" "number" 0)
+    ("mode" "Виберіть режим передачі" "select"
      (("datagram" "Дейтаграмний")
       ("logical-conn" "З логічним з'єднанням")
       ("virtual-chan" "Зі встановленням віртуального каналу")))
     ("message-size" "Розмір повідомлення, Б" "number" 4096)
-    ("segment-size" "Розмір сегмента, Б" "number" 1024)
+    ;; ("segment-size" "Розмір сегмента, Б" "number" 1024)
     ("packet-size" "Розмір пакета, Б" "number" 512)))
 
 (defun create-send-message-form (url)
-  (create-form url +network-send-message+ "Кінцевий вузол"
-	       (curry #'format nil "customSubmit(~S, ()=>{});")))
+  (create-form url +network-send-message+ 
+	       :id "send-message"))
 
 (defun create-net-paths-form ()
   `())
 
-(defun create-net-packet-testing-form ()
-  `())
+(defun create-net-packet-testing-form (url)
+  `(:div :class "container-fluid"
+	 (:div :class "row"
+	       ,(create-send-message-form url))
+	 (:div :class "row"
+	       ,(create-button "Next node" :id "next-node"))))
 
 (defun create-card (card-root card title body-builder)
   (let ((body (funcall body-builder))
@@ -199,15 +212,13 @@
 (defun create-table-placeholder (id)
   `(:div :class "container-fluid"
 	 (:div :class "row"
-	       ,(create-send-message-form "/send-message")
-	 (:div :class "row"
-	       (:div :class "container-fluid" :id ,id)))))
+	       (:div :class "container-fluid" :id ,id))))
 
 (defun create-side-menu ()
   (let ((cards `(("c1" "Автоматична генерація"
 		       ,(curry #'create-net-auto-gen-form "/gen-net"))
 		 ("c2" "Тестування"
-		       ,(curry #'create-net-auto-gen-form "/gen-net"))
+		       ,(curry #'create-net-packet-testing-form "/send-message"))
 		 ("c-1" "Таблиця маршрутизації"
 			,(curry #'create-table-placeholder "route-table"))))
 	(card-root "card-root"))
@@ -263,7 +274,8 @@
 
 (defparameter +input-parsers+
   (plist-hash-table
-   `("number" ,(rcurry #'parse-integer :junk-allowed t))
+   (list "number" (rcurry #'parse-integer :junk-allowed t)
+	 "select" (compose #'make-keyword #'string-upcase))
    :test #'equal))
 
 (defun get-post-request-parameters (info request)
@@ -359,3 +371,32 @@
 		 (list "nodes" (hash-table-keys nodes)
 		       "edges" edges))
 	 yason::*json-output*)))))
+
+(defstruct send-simulation-info
+  from to message-size packet-size)
+
+(defun create-send (from to message-size packet-size)
+  (make-send-simulation-info :from from :to to :message-size message-size
+			     :packet-size packet-size))
+
+(defun simulate-packet-send-through-path (start-time path)
+  (let ((visited-nodes (make-node-map)))
+    (setf (gethash (first path) visited-nodes)
+	  start-time)
+    ))
+
+(defgeneric send (mode e)
+  (:method ((mode (eql :datagram)) info)
+    (with-slots (from to message-size packet-size) info
+      (let ((paths (blet (gethash from (gethash to *routes-table*)))))
+	(simulate-packet-send-through-path 0 paths)))))
+
+(defun simulate-send (from to mode message-size packet-size)
+  (send mode (create-send from to message-size packet-size)))
+
+(defun blet (it)
+  (break "~S" it)
+  it)
+
+(defun send-message (request)  
+  (encode (blet (apply #'simulate-send (get-post-request-parameters +network-send-message+ request)))))
