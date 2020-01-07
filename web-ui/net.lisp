@@ -24,6 +24,11 @@
 (in-package :ns-ui-net)
 
 
+(defmacro blet (it &optional format)
+  `(let ((it ,it))
+     (break ,(or format "~S") it)
+     it))
+
 (defgeneric get-table-columns (type)
   (:method (tp)))
 
@@ -171,10 +176,10 @@
 (defparameter +network-send-message+
   '(("from" "Відправник" "number" 0)
     ("to" "Отримувач" "number" 0)
-    ("mode" "Виберіть режим передачі" "select"
-     (("datagram" "Дейтаграмний")
-      ("logical-conn" "З логічним з'єднанням")
-      ("virtual-chan" "Зі встановленням віртуального каналу")))
+    ;; ("mode" "Виберіть режим передачі" "select"
+    ;;  (("dataram" "Дейтаграмний")
+    ;;   ("logical-conn" "З логічним з'єднанням")
+    ;;   ("virtual-chan" "Зі встановленням віртуального каналу")))
     ("max-message-size" "Максимальний розмір повідомлення, Б" "number" 4096)
     ("min-message-size" "Мінімальний розмір повідомлення, Б" "number" 64)
     ("message-measurements" "Кількість вимірів" "number" 10)
@@ -382,16 +387,21 @@
 		       "edges" edges))
 	 yason::*json-output*)))))
 
+(defparameter +acknowledge-packet-size+ 40)
+(defparameter +syncronization-packet-size+ 40)
+
 (defstruct send-simulation-info
-  from to message-size packet-size
+  from to message-size packet-size packets-count channel-release-time
   data-packets service-packets
   message-send-time)
 
-(defun create-send (from to message-size packet-size data-packets service-packets)
+(defun create-send (from to message-size packet-size packets-count data-packets service-packets)
   (make-send-simulation-info :from from :to to :message-size message-size
 			     :packet-size packet-size
+			     :packets-count packets-count
 			     :data-packets data-packets
-			     :service-packets service-packets))
+			     :service-packets service-packets
+			     :channel-release-time (make-node-map)))
 
 (defun funcall-reversed (fn &rest args)
   (apply fn (reverse args)))
@@ -451,7 +461,7 @@
 			  (:backward (duplex-channel-backward-release-time channel-rt)))
 			channel)))
 
-(defun update-channel-release-time (channel channel-release-time)
+(defun update-channel-release-time (channel channel-release-time packet-size)
   (unless (gethash (channel-id channel)
 		   channel-release-time)
     (setf (gethash (channel-id channel)
@@ -461,24 +471,25 @@
 	      (make-simple-channel))))
   (update-release-time (gethash (channel-id channel)
 				channel-release-time)
-		       (new-release-time (gethash (channel-id channel)
-						  channel-release-time)
-					 channel)))
+		       (* packet-size
+			  (new-release-time (gethash (channel-id channel)
+						     channel-release-time)
+					    channel))))
 
 (defparameter *send-time* nil)
 
-(defun simulate-packet-send-through-path-r (path channel-release-time)
+(defun simulate-packet-send-through-path-r (path channel-release-time packet-size)
   ;; (blet *current-time*)
   (aif (rest path)
        (let* ((channel (gethash (second path)
 				(-> path #'first #'get-node #'node-channels)))
 	      (*current-time* ;; (blet (update-channel-release-time channel channel-release-time)
 		;; 	    "new: ~S")
-		(update-channel-release-time channel channel-release-time)))
-	 (simulate-packet-send-through-path-r it channel-release-time))
+		(update-channel-release-time channel channel-release-time packet-size)))
+	 (simulate-packet-send-through-path-r it channel-release-time packet-size))
        (setf *send-time* *current-time*)))
 
-(defun simulate-packet-send-through-path (path channel-release-time)
+(defun simulate-packet-send-through-path (path channel-release-time packet-size)
   (let ((*current-time*
 	  (or (aand ;; (blet 
 	       ;; 	  "chrt: ~S")
@@ -492,35 +503,97 @@
 					 (:backward :forward))))
 		 (release-time it)))
 	      0)))
-    (simulate-packet-send-through-path-r path channel-release-time)))
+    (simulate-packet-send-through-path-r path channel-release-time packet-size)))
+
+(defun send-datagram-with-ack (info path channel-release-time packet-size)
+  (simulate-packet-send-through-path path channel-release-time packet-size)
+  (let ((*send-direction* :backward))
+    (simulate-packet-send-through-path (reverse path) channel-release-time +acknowledge-packet-size+))
+  (incf (send-simulation-info-data-packets info)
+	packet-size)
+  (incf (send-simulation-info-service-packets info)
+	+acknowledge-packet-size+))
+
+(defun set-send-time (info)
+  (with-slots (from to channel-release-time) info
+    (let ((paths (gethash from (gethash to *routes-table*))))
+      (setf (send-simulation-info-message-send-time info)
+	    (apply
+	     #'max
+	     (mapcar (lambda (path)
+		       (or (aand (gethash
+				  (channel-id
+				   (gethash (second path)
+					    (-> path
+						#'first #'get-node #'node-channels)))
+				  channel-release-time)
+				 (release-time it))
+			   0))
+		     (mapcar #'reverse paths)))))))
+
+(defun send-message-packets (info)
+  (with-slots (from to message-size packets-count packet-size channel-release-time) info
+    (let ((paths (gethash from (gethash to *routes-table*)))
+	  (packets-index 0))
+      (loop :while (< packets-index packets-count)
+	    :do (dolist (path paths)
+		  (when (< packets-index packets-count)
+		    (send-datagram-with-ack info path channel-release-time packet-size)
+		    (incf packets-index)))))))
+
+(defun establish-connection (info path)
+  (with-slots (channel-release-time) info
+    (simulate-packet-send-through-path path channel-release-time
+				       +syncronization-packet-size+)
+    (simulate-packet-send-through-path (reverse path) channel-release-time
+				       +acknowledge-packet-size+)
+    (simulate-packet-send-through-path path channel-release-time
+				       +acknowledge-packet-size+)
+    (incf (send-simulation-info-service-packets info)
+	  +syncronization-packet-size+)
+    (incf (send-simulation-info-service-packets info)
+	  +acknowledge-packet-size+)
+    (incf (send-simulation-info-service-packets info)
+	  +acknowledge-packet-size+)))
+
+(defun finish-connection (info path)
+  (with-slots (channel-release-time) info
+    (simulate-packet-send-through-path path channel-release-time
+				       +syncronization-packet-size+)
+    (simulate-packet-send-through-path (reverse path) channel-release-time
+				       +acknowledge-packet-size+)
+    (simulate-packet-send-through-path path channel-release-time
+				       +syncronization-packet-size+)
+    (simulate-packet-send-through-path (reverse path) channel-release-time
+				       +syncronization-packet-size+)
+    (incf (send-simulation-info-service-packets info)
+	  +syncronization-packet-size+)
+    (incf (send-simulation-info-service-packets info)
+	  +acknowledge-packet-size+)
+    (incf (send-simulation-info-service-packets info)
+	  +syncronization-packet-size+)
+    (incf (send-simulation-info-service-packets info)
+	  +syncronization-packet-size+)))
 
 (defgeneric send (mode e)
   (:method ((mode (eql :datagram)) info)
-    (with-slots (from to message-size packet-size) info
-      (let ((paths (gethash from (gethash to *routes-table*)))
-	    (channel-release-time (make-node-map))
-	    (packets-count packet-size)
-	    (packets-index 0))
-	(loop :while (< packets-index packets-count)
-	      :do (dolist (path paths)
-		    (when (< packets-index packets-count)
-		      (simulate-packet-send-through-path path channel-release-time)
-		      (let ((*send-direction* :backward))
-			(simulate-packet-send-through-path (reverse path) channel-release-time))
-		      (incf (send-simulation-info-data-packets info))
-		      (incf (send-simulation-info-service-packets info))
-		      (incf packets-index))))
-	(setf (send-simulation-info-message-send-time info)
-	      (apply
-	       #'max
-	       (mapcar (lambda (path)
-			 (release-time (gethash
-					(channel-id
-					 (gethash (second path)
-						  (-> path
-						      #'first #'get-node #'node-channels)))
-					channel-release-time)))
-		       (mapcar #'reverse paths))))))))
+    (send-message-packets info))
+  (:method ((mode (eql :logical-conn)) info)
+    (with-slots (from to) info
+      (let ((path (first (gethash from (gethash to *routes-table*)))))
+	;; (establish-connection info path)
+	(send-message-packets info)
+	;; (finish-connection info path)
+	)))
+  (:method ((mode (eql :virtual-chan)) info)
+    (with-slots (from to) info
+      (let ((path (first (gethash from (gethash to *routes-table*)))))
+	;; (establish-connection info path)
+	(send-message-packets info)
+	;; (finish-connection info path)
+	)))
+  (:method :after (mode info)
+    (set-send-time info)))
 
 (defun rapply (composer fn-list &rest args)
   (apply composer (mapcar (rcurry #'apply args) fn-list)))
@@ -528,19 +601,22 @@
 (defun rrapply (composer fn-list &rest args)
   (apply composer (mapcar (apply #'rcurry #'rapply args) fn-list)))
 
-(defun simulate-send (from to mode
+(defun simulate-send (mode from to
 		      max-message-size min-message-size message-measurements
 		      mtu
 		      max-packet-count min-packet-count packet-measurements)
-  from to mode max-message-size min-message-size message-measurements mtu max-packet-count min-packet-count packet-measurements
+  from to ;; mode
+  max-message-size min-message-size message-measurements mtu max-packet-count min-packet-count packet-measurements
   (let ((report (list))
-	(packet-size  min-packet-count)
+	(packets-count min-packet-count)
   	(message-size-step (/ (- max-message-size min-message-size)
   			      message-measurements)))
     (dotimes (message-size-i message-measurements)
       (let* ((message-size (floor (+ min-message-size
 				     (* message-size-i message-size-step))))
-	     (info (create-send from to message-size packet-size 0 0)))
+	     (packet-size (floor message-size packets-count))
+	     (info (create-send from to message-size packet-size packets-count 0 0)))
+	;; (blet message-size)
 	(send mode info)
 	;; (rapply #'list '(send-simulation-info-data-packets
 	;; 		 send-simulation-info-service-packets
@@ -551,15 +627,20 @@
 				      "id" message-size-i)
 				:test #'equal)
 	      report)))
-    (list report)
-    ))
-
-(defmacro blet (it &optional format)
-  `(let ((it ,it))
-     (break ,(or format "~S") it)
-     it))
+    report))
 
 (defun send-message (request)
-  (with-output-to-string* (:indent t)
-    (encode (apply #'simulate-send (get-post-request-parameters +network-send-message+ request))
-	    yason::*json-output*)))
+  (let ((mode-to-label (plist-hash-table
+			(list :datagram '("Дейтаграмний режим" "red")
+			      :logical-conn '("Режим зі встановленням зв'язку" "blue")
+			      :virtual-chan '("Режим зі встановленням віртуального каналу" "green")))))
+    (labels ((%send (mode)
+	       (apply #'simulate-send mode
+		      (get-post-request-parameters +network-send-message+ request)))
+	     (%make-report (mode)
+	       (plist-hash-table (list "label" (first (gethash mode mode-to-label))
+				       "borderColor" (second (gethash mode mode-to-label))
+				       "data" (%send mode)))))
+      (with-output-to-string* (:indent t)
+	(encode (mapcar #'%make-report (hash-table-keys mode-to-label))
+		yason::*json-output*)))))

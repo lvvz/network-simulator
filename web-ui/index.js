@@ -52,22 +52,7 @@ function drawChart (container, items) {
     let ctx = container;
     let scatterChart = new Chart(ctx, {
 	type: 'line',
-	data: {
-            datasets: [{
-		label: 'Scatter Dataset',
-		data: /*[{
-                    x: -10,
-                    y: 0
-		}, {
-                    x: 0,
-                    y: 10
-		}, {
-                    x: 10,
-                    y: 5
-		    }]*/
-		items
-            }]
-	},
+	data: { datasets: items },
 	options: {
             scales: {
 		xAxes: [{
@@ -163,15 +148,17 @@ function drawNetwork (nodesJSON, edgesJSON) {
     		    let shortest_paths = $.parseJSON(response);
     		    console.log (shortest_paths);
     		    drawShortestPaths (shortest_paths, from, to);
-		    postForm($("#send-message"), function (reports) {
-			console.log(reports);
-			reports.forEach((report, i) => {
-			    console.log(report);
-			    // $("#visualization").append('<div class="my-viz-chart" id="vis'+i+'"></div>');
-			    $("#visualization").append('<canvas class="my-viz-chart" id="viz'+i+'"></canvas>');
-			    drawChart($('#viz'+i).get()[0], report);
-			    alert(report);
-			});
+		    postForm($("#send-message"), function (report) {
+			let i = 0;
+			console.log(report);
+			$("#visualization").append('<canvas class="my-viz-chart" id="viz'+i+'"></canvas>');
+			drawChart($('#viz'+i).get()[0], report);
+			alert(report);
+			// reports.forEach((report, i) => {
+			//     console.log(report);
+			//     // $("#visualization").append('<div class="my-viz-chart" id="vis'+i+'"></div>');
+			
+			// });
 		    });
     		});
     	    }
