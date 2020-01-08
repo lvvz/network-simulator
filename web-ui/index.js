@@ -64,6 +64,50 @@ function drawChart (container, items) {
     });
 }
 
+let _colorGroups_ = [
+    "#ffff00",
+    "#ffffff",
+    "#c0c0c0",
+    "#ff0000",
+    "#800080",
+    "#800080",
+    "#ffc0cb",
+    "#ffa500",
+    "#808000",
+    "#000080",
+    "#800000",
+    "#ff00ff",
+    "#00ff00",
+    "#ffffe0",
+    "#ffb6c1",
+    "#d3d3d3",
+    "#90ee90",
+    "#e0ffff",
+    "#add8e6",
+    "#f0e68c",
+    "#4b0082",
+    "#008000",
+    "#ffd700",
+    "#ff00ff",
+    "#9400d3",
+    "#e9967a",
+    "#8b0000",
+    "#9932cc",
+    "#ff8c00",
+    "#556b2f",
+    "#8b008b",
+    "#bdb76b",
+    "#006400",
+    "#a9a9a9",
+    "#008b8b",
+    "#00008b",
+    "#00ffff",
+    "#a52a2a",
+    "#f5f5dc",
+    "#f0ffff",
+    "#00ffff"
+];
+
 function drawNetwork (nodesJSON, edgesJSON) {
     var nodes = new vis.DataSet(nodesJSON);
     let edges = new vis.DataSet(edgesJSON);
@@ -74,36 +118,44 @@ function drawNetwork (nodesJSON, edgesJSON) {
 	nodes: nodes,
 	edges: edges
     };
+    let _groups = {};
+    _colorGroups_.forEach(color=>{
+	_groups[color] = {
+	    color:{
+		highlight:{
+		    background:color,
+		    borderWidth:3
+		}
+	    }
+	}
+    });
+    _groups.defaultNode = {
+	color:{
+	    highlight:{
+		background:'blue',
+		borderWidth:3
+	    }
+	}
+    };
     let options = {
 	autoResize: true,
 	height: '100%',
 	width: '100%',
 	interaction: {selectConnectedEdges: false},
-	groups: {
-	    defaultNode:{
-		color:{
-		    highlight:{
-			background:'blue',
-			borderWidth:3
-		    }
-		}
-	    },
-	    shortestPath:{
-		color:{
-		    highlight:{
-			background:'red',
-			borderWidth:3
-		    }
-		}
-	    }
-	}
+	groups: _groups
     };
     let network = new vis.Network(container, data, options);
     let shortestPaths = undefined;
     function drawShortestPaths (shortest_paths, from, to) {
 	shortestPaths = shortest_paths.nodes.map (x=>x);
-	shortest_paths.nodes.forEach ((id) => {
-	    nodes.update ({id:id, group: "shortestPath"});
+	let groups = _colorGroups_.map(x=>x);
+	shortest_paths.paths.forEach (path => {
+	    let randIdx = Math.floor(Math.random() * groups.length);
+	    let group = groups[randIdx];
+	    groups.splice(randIdx, 1);
+	    path.forEach(id=> {
+		nodes.update ({id:id, group: group});
+	    });
 	});
 	network.setSelection (shortest_paths);
 	//nodes.update ({id:from, group: "shortestPath"});
@@ -153,9 +205,10 @@ function drawNetwork (nodesJSON, edgesJSON) {
 			// console.log(report);
 			// $("#visualization").append('<canvas class="my-viz-chart" id="viz'+i+'"></canvas>');
 			// alert(report);
+			$("#visualization").empty();
 			reports.forEach((report, i) => {
 			    console.log(report);
-			     $("#visualization").append('<canvas class="my-viz-chart" id="viz'+i+'"></canvas>');
+			    $("#visualization").append('<canvas class="my-viz-chart" id="viz'+i+'"></canvas>');
 			    // $("#visualization").append('<div class="my-viz-chart" id="vis'+i+'"></div>');
 			    drawChart($('#viz'+i).get()[0], report);
 			});

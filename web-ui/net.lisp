@@ -370,21 +370,22 @@
 (defun rt-shortest-paths (request)
   (destructuring-bind (from to) (get-post-request-parameters +path-input+ request)
     (let ((edges (list))
-	  (nodes (make-node-map)))
+	  (nodes (make-node-map))
+	  (paths (gethash to (gethash from *routes-table*))))
       (mapc (lambda (x)
 	      (maplist (lambda (nodes)
 			 (when (rest nodes)
 			   (push (channel-id (gethash (second nodes) (node-channels (get-node (first nodes)))))
 				 edges)))
 		       x))
-	    (gethash to (gethash from *routes-table*)))
-      (mapc (lambda (x)
-	      (setf (gethash x nodes) t))
-	    (apply #'append (gethash to (gethash from *routes-table*))))
+	    paths)
+      (mapc (lambda (x) (setf (gethash x nodes) t))
+	    (apply #'append paths))
       (with-output-to-string* ()
 	(encode (plist-hash-table
 		 (list "nodes" (hash-table-keys nodes)
-		       "edges" edges))
+		       "edges" edges
+		       "paths" paths))
 	 yason::*json-output*)))))
 
 (defparameter +acknowledge-packet-size+ 40)
@@ -607,8 +608,12 @@
 
 (defun dorange (start step count fn)
   (dotimes (i (1+ count))
-    (funcall fn (floor (+ start (* i step)))
+    (funcall fn
+	     (floor (+ start (* i step)))
 	     i)))
+
+(defun create-x-y-json (id x y)
+  (plist-hash-table (list "x" x "y" y "id" id) :test #'equal))
 
 (defun simulate-send (mode from to
 		      max-message-size min-message-size message-measurements
@@ -626,46 +631,25 @@
 		(let* ((packet-size (floor message-size packets-count))
 		       (info (create-send from to message-size packet-size packets-count 0 0)))
 		  (send mode info)
-		  (push (plist-hash-table (list "x" message-size
-						"y" (send-simulation-info-message-send-time info)
-						"id" i)
-					  :test #'equal)
+		  (push (create-x-y-json i message-size (send-simulation-info-message-send-time info))
 			report))))
      report)
    (let ((report (list))
-	 (packets-count min-packet-count)
-	 (message-size-step (/ (- max-message-size min-message-size)
-			       message-measurements)))
-     (dorange min-message-size message-size-step message-measurements
-	      (lambda (message-size i)
+	 (message-size max-message-size))
+     (dorange min-packet-count
+	      (/ (- max-packet-count min-packet-count)
+		 packet-measurements)
+	      packet-measurements
+	      (lambda (packets-count i)
 		(let* ((packet-size (floor message-size packets-count))
 		       (info (create-send from to message-size packet-size packets-count 0 0)))
 		  (send mode info)
-		  (push (plist-hash-table (list "x" message-size
-						"y" (send-simulation-info-message-send-time info)
-						"id" i)
-					  :test #'equal)
+		  (push (create-x-y-json i packets-count (send-simulation-info-message-send-time info))
 			report))))
-     report))
-   ;; (let ((report (list))
-   ;; 	(packets-count min-packet-count)
-   ;; 	(message-size-step (/ (- max-message-size min-message-size)
-   ;; 			      message-measurements)))
-   ;;  (dotimes (message-size-i message-measurements)
-   ;;    (let* ((message-size (floor (+ min-message-size
-   ;; 				     (* message-size-i message-size-step))))
-   ;; 	     (packet-size (floor message-size packets-count))
-   ;; 	     (info (create-send from to message-size packet-size packets-count 0 0)))
-   ;; 	(send mode info)
-   ;; 	(push (plist-hash-table (list "x" message-size
-   ;; 				      "y" (send-simulation-info-message-send-time info)
-   ;; 				      "id" message-size-i)
-   ;; 				:test #'equal)
-   ;; 	      report)))
+     report)))
 
-    
-   ;;  report)
-   )
+(defmacro ht (&rest plist)
+  (plist-hash-table plist))
 
 (defun send-message (request)
   (let ((mode-to-label (plist-hash-table
