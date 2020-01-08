@@ -148,17 +148,17 @@ function drawNetwork (nodesJSON, edgesJSON) {
     		    let shortest_paths = $.parseJSON(response);
     		    console.log (shortest_paths);
     		    drawShortestPaths (shortest_paths, from, to);
-		    postForm($("#send-message"), function (report) {
-			let i = 0;
-			console.log(report);
-			$("#visualization").append('<canvas class="my-viz-chart" id="viz'+i+'"></canvas>');
-			drawChart($('#viz'+i).get()[0], report);
-			alert(report);
-			// reports.forEach((report, i) => {
-			//     console.log(report);
-			//     // $("#visualization").append('<div class="my-viz-chart" id="vis'+i+'"></div>');
-			
-			// });
+		    postForm($("#send-message"), function (reports) {
+			// let i = 0;
+			// console.log(report);
+			// $("#visualization").append('<canvas class="my-viz-chart" id="viz'+i+'"></canvas>');
+			// alert(report);
+			reports.forEach((report, i) => {
+			    console.log(report);
+			     $("#visualization").append('<canvas class="my-viz-chart" id="viz'+i+'"></canvas>');
+			    // $("#visualization").append('<div class="my-viz-chart" id="vis'+i+'"></div>');
+			    drawChart($('#viz'+i).get()[0], report);
+			});
 		    });
     		});
     	    }

@@ -426,12 +426,11 @@
 
 (defparameter *current-time* nil)
 
-(defun add-weight-to-time (time channel)
-  (aif time
-       (+ (max it *current-time*)
-	  (channel-weight channel))
-       (+ *current-time*
-	  (channel-weight channel))))
+(defun add-weight-to-time (time channel packet-size)
+  (+ (aif time
+	  (max it *current-time*)
+	  *current-time*)
+     (* packet-size (channel-weight channel))))
 
 (defparameter *send-direction* :forward)
 
@@ -451,15 +450,17 @@
       (:forward (setf (duplex-channel-forward-release-time channel-rt) nrt))
       (:backward (setf (duplex-channel-backward-release-time channel-rt) nrt)))))
 
-(defgeneric new-release-time (channel-rt channel)
-  (:method ((channel-rt simple-channel) channel)
+(defgeneric new-release-time (channel-rt channel packet-size)
+  (:method ((channel-rt simple-channel) channel packet-size)
     (add-weight-to-time (simple-channel-release-time channel-rt)
-			channel))
-  (:method ((channel-rt duplex-channel) channel)
+			channel
+			packet-size))
+  (:method ((channel-rt duplex-channel) channel packet-size)
     (add-weight-to-time (case *send-direction*
 			  (:forward (duplex-channel-forward-release-time channel-rt))
 			  (:backward (duplex-channel-backward-release-time channel-rt)))
-			channel)))
+			channel
+			packet-size)))
 
 (defun update-channel-release-time (channel channel-release-time packet-size)
   (unless (gethash (channel-id channel)
@@ -471,10 +472,10 @@
 	      (make-simple-channel))))
   (update-release-time (gethash (channel-id channel)
 				channel-release-time)
-		       (* packet-size
-			  (new-release-time (gethash (channel-id channel)
-						     channel-release-time)
-					    channel))))
+		       (new-release-time (gethash (channel-id channel)
+						  channel-release-time)
+					 channel
+					 packet-size)))
 
 (defparameter *send-time* nil)
 
@@ -531,15 +532,18 @@
 			   0))
 		     (mapcar #'reverse paths)))))))
 
-(defun send-message-packets (info)
-  (with-slots (from to message-size packets-count packet-size channel-release-time) info
-    (let ((paths (gethash from (gethash to *routes-table*)))
-	  (packets-index 0))
+(defun send-message-packets-via-paths (info paths)
+  (with-slots (message-size packets-count packet-size channel-release-time) info
+    (let ((packets-index 0))
       (loop :while (< packets-index packets-count)
 	    :do (dolist (path paths)
 		  (when (< packets-index packets-count)
 		    (send-datagram-with-ack info path channel-release-time packet-size)
 		    (incf packets-index)))))))
+
+(defun send-message-packets (info)
+  (with-slots (from to) info
+    (send-message-packets-via-paths info (gethash from (gethash to *routes-table*)))))
 
 (defun establish-connection (info path)
   (with-slots (channel-release-time) info
@@ -581,16 +585,16 @@
   (:method ((mode (eql :logical-conn)) info)
     (with-slots (from to) info
       (let ((path (first (gethash from (gethash to *routes-table*)))))
-	;; (establish-connection info path)
+	(establish-connection info path)
 	(send-message-packets info)
-	;; (finish-connection info path)
+	(finish-connection info path)
 	)))
   (:method ((mode (eql :virtual-chan)) info)
     (with-slots (from to) info
       (let ((path (first (gethash from (gethash to *routes-table*)))))
-	;; (establish-connection info path)
-	(send-message-packets info)
-	;; (finish-connection info path)
+	(establish-connection info path)
+	(send-message-packets-via-paths info (list path))
+	(finish-connection info path)
 	)))
   (:method :after (mode info)
     (set-send-time info)))
@@ -601,33 +605,67 @@
 (defun rrapply (composer fn-list &rest args)
   (apply composer (mapcar (apply #'rcurry #'rapply args) fn-list)))
 
+(defun dorange (start step count fn)
+  (dotimes (i (1+ count))
+    (funcall fn (floor (+ start (* i step)))
+	     i)))
+
 (defun simulate-send (mode from to
 		      max-message-size min-message-size message-measurements
 		      mtu
 		      max-packet-count min-packet-count packet-measurements)
   from to ;; mode
   max-message-size min-message-size message-measurements mtu max-packet-count min-packet-count packet-measurements
-  (let ((report (list))
-	(packets-count min-packet-count)
-  	(message-size-step (/ (- max-message-size min-message-size)
-  			      message-measurements)))
-    (dotimes (message-size-i message-measurements)
-      (let* ((message-size (floor (+ min-message-size
-				     (* message-size-i message-size-step))))
-	     (packet-size (floor message-size packets-count))
-	     (info (create-send from to message-size packet-size packets-count 0 0)))
-	;; (blet message-size)
-	(send mode info)
-	;; (rapply #'list '(send-simulation-info-data-packets
-	;; 		 send-simulation-info-service-packets
-	;; 		 send-simulation-info-message-send-time)
-	;; 	info)
-	(push (plist-hash-table (list "x" message-size
-				      "y" (send-simulation-info-message-send-time info)
-				      "id" message-size-i)
-				:test #'equal)
-	      report)))
-    report))
+  (list
+   (let ((report (list))
+	 (packets-count min-packet-count)
+	 (message-size-step (/ (- max-message-size min-message-size)
+			       message-measurements)))
+     (dorange min-message-size message-size-step message-measurements
+	      (lambda (message-size i)
+		(let* ((packet-size (floor message-size packets-count))
+		       (info (create-send from to message-size packet-size packets-count 0 0)))
+		  (send mode info)
+		  (push (plist-hash-table (list "x" message-size
+						"y" (send-simulation-info-message-send-time info)
+						"id" i)
+					  :test #'equal)
+			report))))
+     report)
+   (let ((report (list))
+	 (packets-count min-packet-count)
+	 (message-size-step (/ (- max-message-size min-message-size)
+			       message-measurements)))
+     (dorange min-message-size message-size-step message-measurements
+	      (lambda (message-size i)
+		(let* ((packet-size (floor message-size packets-count))
+		       (info (create-send from to message-size packet-size packets-count 0 0)))
+		  (send mode info)
+		  (push (plist-hash-table (list "x" message-size
+						"y" (send-simulation-info-message-send-time info)
+						"id" i)
+					  :test #'equal)
+			report))))
+     report))
+   ;; (let ((report (list))
+   ;; 	(packets-count min-packet-count)
+   ;; 	(message-size-step (/ (- max-message-size min-message-size)
+   ;; 			      message-measurements)))
+   ;;  (dotimes (message-size-i message-measurements)
+   ;;    (let* ((message-size (floor (+ min-message-size
+   ;; 				     (* message-size-i message-size-step))))
+   ;; 	     (packet-size (floor message-size packets-count))
+   ;; 	     (info (create-send from to message-size packet-size packets-count 0 0)))
+   ;; 	(send mode info)
+   ;; 	(push (plist-hash-table (list "x" message-size
+   ;; 				      "y" (send-simulation-info-message-send-time info)
+   ;; 				      "id" message-size-i)
+   ;; 				:test #'equal)
+   ;; 	      report)))
+
+    
+   ;;  report)
+   )
 
 (defun send-message (request)
   (let ((mode-to-label (plist-hash-table
@@ -636,11 +674,19 @@
 			      :virtual-chan '("Режим зі встановленням віртуального каналу" "green")))))
     (labels ((%send (mode)
 	       (apply #'simulate-send mode
-		      (get-post-request-parameters +network-send-message+ request)))
-	     (%make-report (mode)
-	       (plist-hash-table (list "label" (first (gethash mode mode-to-label))
-				       "borderColor" (second (gethash mode mode-to-label))
-				       "data" (%send mode)))))
+		      (get-post-request-parameters +network-send-message+ request))))
       (with-output-to-string* (:indent t)
-	(encode (mapcar #'%make-report (hash-table-keys mode-to-label))
-		yason::*json-output*)))))
+	(let* ((keys (hash-table-keys mode-to-label))
+	       (report (mapcar #'%send keys))
+	       (report ;; (alist-hash-table (mapcar #'cons keys report))
+		 (apply #'mapcar #'list report)))
+	  (encode (mapcar (lambda (report)
+			    (mapcar (lambda (mode report)
+				      (plist-hash-table (list "label" (first (gethash mode mode-to-label))
+							      "borderColor" (second (gethash mode mode-to-label))
+							      "data" ;; (%send mode)
+							      report
+							      )))
+				    keys report))
+			  report)
+		  yason::*json-output*))))))
