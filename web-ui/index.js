@@ -40,7 +40,32 @@ function putTable (id, tabledata, columns) {
     table.setData (tabledata);
 }
 
-function drawChart (container, items) {
+var dataToTable = function (dataset) {
+    var html = '<table>';
+    html += '<thead><tr><th style="width:120px;">#</th>';
+    
+    var columnCount = 0;
+    jQuery.each(dataset.datasets, function (idx, item) {
+        html += '<th style="background-color:' + item.fillColor + ';">' + item.label + '</th>';
+        columnCount += 1;
+    });
+
+    html += '</tr></thead>';
+    html += '<tbody>';
+    dataset.datasets[0].data.forEach(function (item, idx) {
+        html += '<tr><td>' + item.x + '</td>';
+        for (i = 0; i < columnCount; i++) {
+            html += '<td style="background-color:' + dataset.datasets[i].fillColor + ';">' + (dataset.datasets[i].data[idx] === '0' ? '-' : dataset.datasets[i].data[idx].y) + '</td>';
+        }
+        html += '</tr>';
+    });
+
+    html += '</tr></tbody></table>';
+
+    return html;
+};
+
+function drawChart (container, tableId, items) {
     // let dataset = new vis.DataSet(items);
     // console.log(dataset);
     // let options = {
@@ -62,6 +87,7 @@ function drawChart (container, items) {
             }
 	}
     });
+    $('#'+tableId).html(dataToTable(scatterChart.data));
 }
 
 let _colorGroups_ = [
@@ -208,9 +234,9 @@ function drawNetwork (nodesJSON, edgesJSON) {
 			$("#visualization").empty();
 			reports.forEach((report, i) => {
 			    console.log(report);
-			    $("#visualization").append('<canvas class="my-viz-chart" id="viz'+i+'"></canvas>');
+			    $("#visualization").append('<div class="my-viz-chart"><canvas id="viz'+i+'"></canvas><div id="viz-tab'+i+ '"></div></div>');
 			    // $("#visualization").append('<div class="my-viz-chart" id="vis'+i+'"></div>');
-			    drawChart($('#viz'+i).get()[0], report);
+			    drawChart($('#viz'+i).get()[0], 'viz-tab'+i, report);
 			});
 		    });
     		});

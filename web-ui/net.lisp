@@ -480,6 +480,10 @@
 
 (defparameter *send-time* nil)
 
+(defparameter *resend-on-errors* t)
+(defparameter *error-probability* nil)
+(defparameter *forward-path* nil)
+
 (defun simulate-packet-send-through-path-r (path channel-release-time packet-size)
   ;; (blet *current-time*)
   (aif (rest path)
@@ -488,7 +492,14 @@
 	      (*current-time* ;; (blet (update-channel-release-time channel channel-release-time)
 		;; 	    "new: ~S")
 		(update-channel-release-time channel channel-release-time packet-size)))
-	 (simulate-packet-send-through-path-r it channel-release-time packet-size))
+	 
+	 (if (< (random .99999) *error-probability*)
+	     (progn
+	       (simulate-packet-send-through-path-r (member (first it) (reverse *forward-path*))
+						    channel-release-time packet-size)
+	       (simulate-packet-send-through-path-r *forward-path*
+						    channel-release-time packet-size))
+	     (simulate-packet-send-through-path-r it channel-release-time packet-size)))
        (setf *send-time* *current-time*)))
 
 (defun simulate-packet-send-through-path (path channel-release-time packet-size)
@@ -504,7 +515,8 @@
 					 (:forward :backward)
 					 (:backward :forward))))
 		 (release-time it)))
-	      0)))
+	      0))
+	(*forward-path* path))
     (simulate-packet-send-through-path-r path channel-release-time packet-size)))
 
 (defun send-datagram-with-ack (info path channel-release-time packet-size)
@@ -615,38 +627,45 @@
 (defun create-x-y-json (id x y)
   (plist-hash-table (list "x" x "y" y "id" id) :test #'equal))
 
+(defun create-table ())
+
 (defun simulate-send (mode from to
 		      max-message-size min-message-size message-measurements
 		      mtu
 		      max-packet-count min-packet-count packet-measurements)
   from to ;; mode
   max-message-size min-message-size message-measurements mtu max-packet-count min-packet-count packet-measurements
-  (list
-   (let ((report (list))
-	 (packets-count min-packet-count)
-	 (message-size-step (/ (- max-message-size min-message-size)
-			       message-measurements)))
-     (dorange min-message-size message-size-step message-measurements
-	      (lambda (message-size i)
-		(let* ((packet-size (floor message-size packets-count))
-		       (info (create-send from to message-size packet-size packets-count 0 0)))
-		  (send mode info)
-		  (push (create-x-y-json i message-size (send-simulation-info-message-send-time info))
-			report))))
-     report)
-   (let ((report (list))
-	 (message-size max-message-size))
-     (dorange min-packet-count
-	      (/ (- max-packet-count min-packet-count)
-		 packet-measurements)
-	      packet-measurements
-	      (lambda (packets-count i)
-		(let* ((packet-size (floor message-size packets-count))
-		       (info (create-send from to message-size packet-size packets-count 0 0)))
-		  (send mode info)
-		  (push (create-x-y-json i packets-count (send-simulation-info-message-send-time info))
-			report))))
-     report)))
+  (let ((*error-probability* 0.00001))
+    (append
+     (let ((report (list (list) (list)))
+	   (packets-count min-packet-count)
+	   (message-size-step (/ (- max-message-size min-message-size)
+				 message-measurements)))
+       (dorange min-message-size message-size-step message-measurements
+		(lambda (message-size i)
+		  (let* ((packet-size (floor message-size packets-count))
+			 (info (create-send from to message-size packet-size packets-count 0 0)))
+		    (send mode info)
+		    (push (create-x-y-json i message-size (send-simulation-info-message-send-time info))
+			  (car report))
+		    (push (create-x-y-json i message-size (send-simulation-info-service-packets info))
+			  (second report)))))
+       report)
+     (let ((report (list (list) (list)))
+	   (message-size max-message-size))
+       (dorange min-packet-count
+		(/ (- max-packet-count min-packet-count)
+		   packet-measurements)
+		packet-measurements
+		(lambda (packets-count i)
+		  (let* ((packet-size (floor message-size packets-count))
+			 (info (create-send from to message-size packet-size packets-count 0 0)))
+		    (send mode info)
+		    (push (create-x-y-json i packets-count (send-simulation-info-message-send-time info))
+			  (car report))
+		    (push (create-x-y-json i packets-count (send-simulation-info-service-packets info))
+			  (second report)))))
+       report))))
 
 (defmacro ht (&rest plist)
   (plist-hash-table plist))
@@ -668,9 +687,32 @@
 			    (mapcar (lambda (mode report)
 				      (plist-hash-table (list "label" (first (gethash mode mode-to-label))
 							      "borderColor" (second (gethash mode mode-to-label))
+							      "fillColor" (second (gethash mode mode-to-label))
 							      "data" ;; (%send mode)
 							      report
 							      )))
 				    keys report))
 			  report)
 		  yason::*json-output*))))))
+
+(defun all-combinations (&rest lists)
+  (if lists
+      (let ((rest-combinations (apply #'all-combinations
+				      (rest lists))))
+	(mapcan (lambda (option)
+		  (mapcar (curry #'cons option)
+			  rest-combinations))
+		(first lists)))
+      (list nil)))
+
+(defmacro define-methods (name lambda-list &rest methods)
+  `(progn
+     (defgeneric ,name ,lambda-list)
+     ,@(mapcan (lambda (methods-declaration)
+		 (destructuring-bind (specifiers-lists &rest method-body) methods-declaration
+		   (mapcar (lambda (specifiers)
+			     (let ((args (mapcar #'list lambda-list specifiers)))
+			       `(defmethod ,name ,args
+				  (progn ,@method-body))))
+			   (apply #'all-combinations specifiers-lists))))
+	       methods)))
